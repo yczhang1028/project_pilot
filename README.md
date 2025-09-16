@@ -2,6 +2,10 @@
 
 A modern, powerful project manager for Visual Studio Code that supports local folders, workspace files, and SSH remote projects with a beautiful React-based interface.
 
+![Project Pilot Main Interface](media/demo/demo_manager.png)
+
+*Project Pilot's main interface showing projects in grouped view with customizable colors and tags*
+
 ## ✨ Features
 
 ### 🎯 Core Functionality
@@ -21,11 +25,13 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 - **Project Descriptions**: Add detailed descriptions with hover tooltips
 
 ### 🎨 User Experience
-- **Dual View Modes**: Switch between grid and list views
+- **Dual View Modes**: Switch between grid and list views in Manager
+- **Tree/List Toggle**: Outline view supports both flat and grouped display
 - **Smart Filtering**: Filter by tags, project types, and search terms
-- **Drag & Drop**: Easy project management with intuitive interactions
+- **Clickable Icons**: Direct project opening from list view icons
 - **Keyboard Shortcuts**: Quick access to common actions
 - **Hover Tooltips**: Rich information display on hover
+- **Theme Integration**: Full VSCode theme support for seamless experience
 
 ## 🚀 Quick Start
 
@@ -33,17 +39,28 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 1. Install the extension from the VS Code marketplace
 2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
 3. Run `Project Pilot: Show Manager` to open the main interface
+4. Or click the Project Pilot icon in the Activity Bar (left sidebar)
+
+### First Steps
+1. **Add your first project**: Click the `+ Add` button or use `Ctrl+P Ctrl+L`
+2. **Customize your project**: Add descriptions, tags, and custom colors
+3. **Organize with groups**: Create groups like "Work", "Personal", "Learning"
+4. **Switch views**: Toggle between grid/list in Manager and tree/flat in Outline
 
 ### Adding Projects
 
+![Adding New Projects](media/demo/demo_add.png)
+
+*Easy project creation with multiple options and smart defaults*
+
 #### Local Folders
 - **Command**: `Project Pilot: Add Local Folder`
-- **Shortcut**: `Ctrl+Shift+P L` / `Cmd+Shift+P L`
+- **Shortcut**: `Ctrl+P Ctrl+L` / `Cmd+P Cmd+L`
 - Select any folder on your system to add as a project
 
 #### Current Folder
 - **Command**: `Project Pilot: Add Current Folder`
-- **Shortcut**: `Ctrl+Shift+P C` / `Cmd+Shift+P C`
+- **Shortcut**: `Ctrl+P Ctrl+C` / `Cmd+P Cmd+C`
 - Add the currently open workspace folder as a project
 
 #### Workspace Files
@@ -72,6 +89,28 @@ Each project is displayed as a customizable card with:
 - **List View**: Compact list with detailed information
 - **Toggle**: Switch views using the toolbar buttons
 
+![Outline View](media/demo/demo_outline.png)
+
+*Outline view with tree structure showing grouped projects*
+
+### Interface Views
+
+Project Pilot provides multiple ways to view and organize your projects:
+
+#### Manager View
+![Manager Interface](media/demo/demo_manager.png)
+- **Grid View**: Visual card-based layout with project previews
+- **List View**: Compact list with detailed project information
+- **Grouped Display**: Organize projects by custom groups
+- **Search & Filter**: Find projects quickly by name, tags, or groups
+
+#### Outline View  
+![Outline Tree View](media/demo/demo_outline.png)
+- **Tree Structure**: Hierarchical display of grouped projects
+- **Flat List**: Simple list view of all projects
+- **Quick Access**: Click any project to open directly
+- **Toggle Views**: Switch between tree and list modes
+
 #### Search & Filter
 - **Global Search**: Search across names, descriptions, paths, and tags
 - **Tag Filter**: Filter by specific tags
@@ -91,9 +130,10 @@ Access settings via `File > Preferences > Settings > Project Pilot`:
 
 | Command | Description | Shortcut |
 |---------|-------------|----------|
-| `Project Pilot: Show Manager` | Open main interface | `Ctrl+Shift+P P` |
-| `Project Pilot: Add Local Folder` | Add local project | `Ctrl+Shift+P L` |
-| `Project Pilot: Add Current Folder` | Add current workspace | `Ctrl+Shift+P C` |
+| `Project Pilot: Show Manager` | Open main interface | `Ctrl+P Ctrl+P` |
+| `Project Pilot: Add Local Folder` | Add local project | `Ctrl+P Ctrl+L` |
+| `Project Pilot: Add Current Folder` | Add current workspace | `Ctrl+P Ctrl+C` |
+| `Project Pilot: Toggle Outline View` | Switch outline tree/list view | - |
 | `Project Pilot: Add Workspace File` | Add workspace file | - |
 | `Project Pilot: Add SSH Remote` | Add SSH project | - |
 | `Project Pilot: Import Configuration` | Import config file | - |
@@ -233,6 +273,12 @@ Then rebuild from the root to update the packaged assets:
 ```powershell
 npm run build:webview
 ```
+
+### Screenshots
+- **Manager View**: `media/demo/demo_manager.png` - Main interface with grouped projects
+- **Add Project**: `media/demo/demo_add.png` - Project creation modal with smart defaults  
+- **Outline View**: `media/demo/demo_outline.png` - Tree view with project hierarchy
+- **Overview**: `media/demo/demo.png` - General interface overview
 
 ## 🤝 Contributing
 

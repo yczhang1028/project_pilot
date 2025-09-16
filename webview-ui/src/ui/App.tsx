@@ -45,7 +45,8 @@ export default function App() {
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [showByGroup, setShowByGroup] = useState(false);
+  const [showByGroup, setShowByGroup] = useState(true);
+  const [compactMode, setCompactMode] = useState(false);
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
 
@@ -270,9 +271,9 @@ export default function App() {
               ))}
             </select>
             
-            <div className="flex rounded border overflow-hidden" style={{ borderColor: theme.inputBorder }}>
+            <div className="flex rounded border overflow-hidden text-xs" style={{ borderColor: theme.inputBorder }}>
               <button 
-                className="px-2 py-1 text-sm"
+                className="px-2 py-1"
                 style={{
                   backgroundColor: viewMode === 'grid' ? theme.listActiveSelectionBackground : theme.inputBackground,
                   color: viewMode === 'grid' ? theme.buttonForeground : theme.inputForeground
@@ -282,7 +283,7 @@ export default function App() {
                 Grid
               </button>
               <button 
-                className="px-2 py-1 text-sm"
+                className="px-2 py-1"
                 style={{
                   backgroundColor: viewMode === 'list' ? theme.listActiveSelectionBackground : theme.inputBackground,
                   color: viewMode === 'list' ? theme.buttonForeground : theme.inputForeground
@@ -294,7 +295,7 @@ export default function App() {
             </div>
             
             <button 
-              className="px-3 py-1 text-sm rounded border"
+              className="px-2 py-1 text-xs rounded border"
               style={{
                 backgroundColor: showByGroup ? theme.listActiveSelectionBackground : theme.inputBackground,
                 color: showByGroup ? theme.buttonForeground : theme.inputForeground,
@@ -303,7 +304,20 @@ export default function App() {
               onClick={() => setShowByGroup(!showByGroup)}
               title="Toggle group view"
             >
-              {showByGroup ? '📁 Grouped' : '📋 List'}
+              {showByGroup ? '📁' : '📋'}
+            </button>
+            
+            <button 
+              className="px-2 py-1 text-xs rounded border"
+              style={{
+                backgroundColor: compactMode ? theme.listActiveSelectionBackground : theme.inputBackground,
+                color: compactMode ? theme.buttonForeground : theme.inputForeground,
+                borderColor: theme.inputBorder
+              }}
+              onClick={() => setCompactMode(!compactMode)}
+              title="Toggle compact mode"
+            >
+              {compactMode ? '📦' : '📏'}
             </button>
           </div>
         </div>
@@ -383,6 +397,13 @@ export default function App() {
           >
             📝 Edit JSON
           </button>
+          <button 
+            className="px-3 py-2 rounded-md bg-cyan-600 text-white hover:bg-cyan-700 transition-colors text-sm"
+            onClick={() => vscode.postMessage({ type: 'sync' })}
+            title="Sync configuration across machines"
+          >
+            🔄 Sync
+          </button>
         </div>
       </div>
       
@@ -448,37 +469,47 @@ export default function App() {
                   }}>
                     {projects.length}
                   </span>
-                </div>
+      </div>
                 <div className={viewMode === 'grid' 
-                  ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" 
-                  : "space-y-2"
+                  ? compactMode 
+                    ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2" 
+                    : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+                  : compactMode 
+                    ? "space-y-1" 
+                    : "space-y-2"
                 }>
                   {projects.map(p => (
                     <Card 
                       key={p.id ?? p.path} 
                       p={p} 
                       viewMode={viewMode}
+                      compactMode={compactMode}
                       theme={theme}
                       allGroups={allGroups}
                       onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
                       onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
                       onOpen={() => vscode.postMessage({ type: 'open', payload: p })}
                     />
-                  ))}
-                </div>
+        ))}
+      </div>
               </div>
             ))}
           </div>
         ) : (
           <div className={viewMode === 'grid' 
-            ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" 
-            : "space-y-2"
+            ? compactMode 
+              ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2" 
+              : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+            : compactMode 
+              ? "space-y-1" 
+              : "space-y-2"
           }>
         {filtered.map(p => (
               <Card 
                 key={p.id ?? p.path} 
                 p={p} 
                 viewMode={viewMode}
+                compactMode={compactMode}
                 theme={theme}
                 allGroups={allGroups}
                 onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
@@ -516,9 +547,10 @@ export default function App() {
   );
 }
 
-function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: { 
+function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, onOpen }: { 
   p: ProjectItem; 
   viewMode: ViewMode;
+  compactMode: boolean;
   theme: any;
   allGroups: string[];
   onChange: (p: ProjectItem) => void; 
@@ -544,7 +576,7 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
   if (viewMode === 'list') {
     return (
       <div 
-        className="flex items-center gap-4 p-3 rounded-lg border-l-4 border-r border-t border-b hover:shadow-md transition-shadow group"
+        className={`flex items-center gap-4 ${compactMode ? "p-2" : "p-3"} rounded-lg border-l-4 border-r border-t border-b hover:shadow-md transition-shadow group`}
         style={{ 
           backgroundColor: theme.secondaryBackground, 
           borderLeftColor: p.color,
@@ -554,12 +586,14 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
         }}
       >
         <div 
-          className="w-12 h-12 rounded-lg flex items-center justify-center text-2xl border-2"
+          className={`${compactMode ? "w-8 h-8 text-lg" : "w-12 h-12 text-2xl"} rounded-lg flex items-center justify-center border-2 cursor-pointer hover:opacity-80 transition-opacity`}
           style={{ 
             borderColor: p.color,
             backgroundColor: theme.secondaryBackground,
             color: p.color
           }}
+          onClick={onOpen}
+          title="Click to open project"
         >
           {p.icon ? (
             <img src={p.icon} className="w-full h-full object-cover rounded-lg" alt="" />
@@ -659,7 +693,7 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
       }}
     >
       <div 
-        className="h-32 flex items-center justify-center relative cursor-pointer"
+        className={`${compactMode ? 'h-20' : 'h-32'} flex items-center justify-center relative cursor-pointer`}
         style={{ 
           backgroundColor: p.icon ? 'transparent' : theme.primaryBackground,
           backgroundImage: p.icon ? `url(${p.icon})` : 'none',
@@ -670,8 +704,8 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
       >
         {!p.icon && (
           <div className="text-center" style={{ color: p.color }}>
-            <div className="text-4xl mb-2">{typeIcons[p.type]}</div>
-            <div className="text-sm opacity-80 capitalize font-medium">{p.type}</div>
+            <div className={`${compactMode ? "text-2xl mb-1" : "text-4xl mb-2"}`}>{typeIcons[p.type]}</div>
+            <div className={`${compactMode ? "text-xs" : "text-sm"} opacity-80 capitalize font-medium`}>{p.type}</div>
           </div>
         )}
         
@@ -698,8 +732,8 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
         </div>
       </div>
       
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-2">
+      <div className={compactMode ? "p-2" : "p-4"}>
+        <div className={`flex items-start justify-between ${compactMode ? "mb-1" : "mb-2"}`}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <div 
@@ -723,15 +757,15 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
         </div>
         
         {p.tags && p.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {p.tags.slice(0, 3).map(tag => (
-              <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
+          <div className={`flex flex-wrap gap-1 ${compactMode ? "mb-1" : "mb-3"}`}>
+            {p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
+              <span key={tag} className={`px-2 py-1 bg-gray-100 text-gray-600 rounded-full ${compactMode ? "text-xs" : "text-xs"}`}>
                 {tag}
               </span>
             ))}
-            {p.tags.length > 3 && (
-              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
-                +{p.tags.length - 3}
+            {p.tags.length > (compactMode ? 2 : 3) && (
+              <span className={`px-2 py-1 bg-gray-100 text-gray-600 rounded-full ${compactMode ? "text-xs" : "text-xs"}`}>
+                +{p.tags.length - (compactMode ? 2 : 3)}
               </span>
             )}
           </div>
@@ -739,7 +773,7 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
         
         <div className="flex items-center justify-between">
           <button
-            className="flex-1 py-2 px-3 rounded-lg transition-colors text-sm font-medium"
+            className={`flex-1 ${compactMode ? "py-1 px-2 text-xs" : "py-2 px-3 text-sm"} rounded-lg transition-colors font-medium`}
             style={{
               backgroundColor: theme.buttonBackground,
               color: theme.buttonForeground
@@ -752,7 +786,7 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
           </button>
           <div className="flex gap-1 ml-2">
             <button
-              className="p-2 rounded-lg transition-colors"
+              className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
               style={{ 
                 color: theme.foreground,
                 opacity: 0.6
@@ -768,12 +802,12 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
               onClick={() => setIsEditing(true)}
               title="Edit"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={compactMode ? "w-3 h-3" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </button>
             <button
-              className="p-2 rounded-lg transition-colors"
+              className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
               style={{ 
                 color: theme.foreground,
                 opacity: 0.6
@@ -791,7 +825,7 @@ function Card({ p, viewMode, theme, allGroups, onChange, onDelete, onOpen }: {
               onClick={onDelete}
               title="Delete"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className={compactMode ? "w-3 h-3" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
@@ -1057,7 +1091,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                 {connectionTestResult === 'success' ? '✅' : '❌'} {testMessage || (connectionTestResult === 'success' ? 'Connection format appears valid' : 'Connection test failed')}
               </div>
             )}
-          </div>
+        </div>
           
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Type</label>
@@ -1075,8 +1109,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               <option value="local" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Local Folder</option>
               <option value="workspace" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Workspace File</option>
               <option value="ssh" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>SSH Remote</option>
-            </select>
-          </div>
+        </select>
+      </div>
           
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Group</label>
@@ -1250,7 +1284,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   />
                 ))}
               </div>
-            </div>
+      </div>
             <div className="flex-1">
               <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Icon</label>
               <button 

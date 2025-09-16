@@ -14,6 +14,8 @@
     "color": "#3B82F6",
     "theme": "dark"
   },
+  "preview": false,
+  "qna": "marketplace",
   "keywords": [
     "project",
     "manager",
@@ -125,6 +127,18 @@
         "title": "Refresh Outline",
         "category": "Project Pilot",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "projectPilot.toggleOutlineView",
+        "title": "Toggle Outline View",
+        "category": "Project Pilot",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "projectPilot.syncConfig",
+        "title": "Sync Configuration",
+        "category": "Project Pilot",
+        "icon": "$(sync)"
       }
     ],
     "viewsContainers": {
@@ -132,10 +146,11 @@
         {
           "id": "projectPilot",
           "title": "Project Pilot",
-          "icon": "media/icon.svg"
+          "icon": "media/activity-bar-icon.svg"
         }
       ]
     },
+    "icon": "media/icon.svg",
     "views": {
       "projectPilot": [
         {
@@ -153,24 +168,29 @@
     "menus": {
       "view/title": [
         {
-          "command": "projectPilot.refreshOutline",
+          "command": "projectPilot.toggleOutlineView",
           "when": "view == projectPilot.outline",
           "group": "navigation@0"
         },
         {
-          "command": "projectPilot.addLocalProject",
+          "command": "projectPilot.refreshOutline",
           "when": "view == projectPilot.outline",
           "group": "navigation@1"
         },
         {
-          "command": "projectPilot.addCurrentFolder",
+          "command": "projectPilot.addLocalProject",
           "when": "view == projectPilot.outline",
           "group": "navigation@2"
         },
         {
-          "command": "projectPilot.scanWorkspaceFolders",
+          "command": "projectPilot.addCurrentFolder",
           "when": "view == projectPilot.outline",
           "group": "navigation@3"
+        },
+        {
+          "command": "projectPilot.scanWorkspaceFolders",
+          "when": "view == projectPilot.outline",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -238,18 +258,18 @@
     "keybindings": [
       {
         "command": "projectPilot.showManager",
-        "key": "ctrl+shift+p p",
-        "mac": "cmd+shift+p p"
+        "key": "ctrl+p ctrl+p",
+        "mac": "cmd+p cmd+p"
       },
       {
         "command": "projectPilot.addLocalProject",
-        "key": "ctrl+shift+p l",
-        "mac": "cmd+shift+p l"
+        "key": "ctrl+p ctrl+l",
+        "mac": "cmd+p cmd+l"
       },
       {
         "command": "projectPilot.addCurrentFolder",
-        "key": "ctrl+shift+p c",
-        "mac": "cmd+shift+p c",
+        "key": "ctrl+p ctrl+c",
+        "mac": "cmd+p cmd+c",
         "when": "workspaceFolderCount > 0"
       }
     ],

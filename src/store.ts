@@ -136,20 +136,93 @@ export class ConfigStore {
 
   async importFromFile(src: vscode.Uri) {
     const buf = await vscode.workspace.fs.readFile(src);
-    const incoming = JSON.parse(Buffer.from(buf).toString('utf8')) as any;
+    const fileSize = buf.length;
+    console.log(`Project Pilot: Reading config file, size: ${fileSize} bytes`);
+    
+    // Check file size (warn if > 10MB)
+    if (fileSize > 10 * 1024 * 1024) {
+      console.warn('Project Pilot: Large config file detected, this might cause issues');
+    }
+    
+    let jsonString = Buffer.from(buf).toString('utf8');
+    console.log(`Project Pilot: JSON string length: ${jsonString.length}`);
+    
+    // If file is very large, try to clean up potential Base64 issues
+    if (fileSize > 1024 * 1024) { // > 1MB
+      console.log('Project Pilot: Large file detected, attempting to clean Base64 data');
+      // Replace potentially problematic Base64 data with empty strings for import
+      jsonString = jsonString.replace(/"icon"\s*:\s*"data:image\/[^"]*"/g, '"icon": ""');
+      console.log(`Project Pilot: Cleaned JSON string length: ${jsonString.length}`);
+    }
+    
+    let incoming: any;
+    try {
+      incoming = JSON.parse(jsonString);
+      console.log('Project Pilot: JSON parsed successfully');
+    } catch (parseError) {
+      console.error('Project Pilot: JSON parse error, attempting to fix...', parseError);
+      
+      // Try to fix common JSON issues
+      try {
+        // Remove potentially problematic Base64 data and try again
+        const cleanedJson = jsonString.replace(/"icon"\s*:\s*"data:image\/[^"]*"/g, '"icon": ""');
+        incoming = JSON.parse(cleanedJson);
+        console.log('Project Pilot: JSON parsed successfully after cleaning Base64 data');
+      } catch (secondError) {
+        console.error('Project Pilot: Failed to parse even after cleaning:', secondError);
+        throw new Error(`Invalid JSON format: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+      }
+    }
+    
+    console.log('Project Pilot: Config structure:', {
+      hasProjects: !!incoming.projects,
+      projectsLength: incoming.projects?.length,
+      isArray: Array.isArray(incoming),
+      hasFolders: !!incoming.folders,
+      keys: Object.keys(incoming || {}),
+      typeOfIncoming: typeof incoming,
+      incomingValue: incoming
+    });
     
     // Validate config structure
     if (!incoming || typeof incoming !== 'object') {
       throw new Error('Invalid config file: not a valid JSON object');
     }
     
-    if (!incoming.projects || !Array.isArray(incoming.projects)) {
-      throw new Error('Invalid config file: missing or invalid projects array');
+    // 支持多种格式
+    let projects: any[] = [];
+    
+    if (incoming.projects && Array.isArray(incoming.projects)) {
+      // 标准格式: { projects: [...] }
+      projects = incoming.projects;
+    } else if (Array.isArray(incoming)) {
+      // 直接数组格式: [...]
+      projects = incoming;
+    } else if (incoming.folders && Array.isArray(incoming.folders)) {
+      // VSCode workspace格式: { folders: [...] }
+      projects = incoming.folders.map((folder: any) => ({
+        name: folder.name || 'Imported Project',
+        path: folder.path || folder.uri || '',
+        type: 'workspace' as const,
+        color: '#10b981',
+        tags: ['imported', 'workspace']
+      }));
+    } else {
+      // Last attempt: try to find any array-like structure
+      const possibleArrays = Object.values(incoming).filter(value => Array.isArray(value));
+      if (possibleArrays.length > 0) {
+        console.log('Project Pilot: Found array structure, attempting to use as projects');
+        projects = possibleArrays[0] as any[];
+      } else {
+        console.error('Project Pilot: No recognizable project structure found');
+        console.error('Available keys:', Object.keys(incoming));
+        throw new Error('Invalid config file: no recognizable project data found. Expected { projects: [...] }, [...], or { folders: [...] }');
+      }
     }
     
     // Validate each project
-    for (let i = 0; i < incoming.projects.length; i++) {
-      const project = incoming.projects[i];
+    for (let i = 0; i < projects.length; i++) {
+      const project = projects[i];
       if (!project || typeof project !== 'object') {
         throw new Error(`Invalid project at index ${i}: not an object`);
       }
@@ -170,14 +243,36 @@ export class ConfigStore {
       project.id = project.id || genId();
       project.color = project.color || '#3b82f6';
       project.tags = project.tags || [];
-      project.icon = project.icon || '';
       project.description = project.description || '';
+      
+      // Validate and clean icon data
+      if (project.icon && typeof project.icon === 'string') {
+        try {
+          // Check if it's a valid base64 data URL
+          if (project.icon.startsWith('data:image/')) {
+            // Validate base64 format
+            const base64Part = project.icon.split(',')[1];
+            if (base64Part) {
+              // Try to decode to validate
+              atob(base64Part);
+            }
+          } else if (project.icon.length > 0) {
+            // If it's not empty but not a data URL, clear it
+            project.icon = '';
+          }
+        } catch (error) {
+          console.warn(`Invalid icon data for project ${project.name}, clearing icon`);
+          project.icon = '';
+        }
+      } else {
+        project.icon = '';
+      }
     }
     
     // Create backup before importing
     await this.createBackup();
     
-    this._state = { projects: incoming.projects as ProjectItem[] };
+    this._state = { projects: projects as ProjectItem[] };
     await this.save();
     if (this.onChangeCallback) {
       this.onChangeCallback();
@@ -196,6 +291,7 @@ export class ConfigStore {
     const data = Buffer.from(JSON.stringify(exportData, null, 2), 'utf8');
     await vscode.workspace.fs.writeFile(dest, data);
   }
+
 
   async createBackup() {
     try {
