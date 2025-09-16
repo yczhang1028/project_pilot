@@ -1,0 +1,62 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景渐变 -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3B82F6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1E40AF;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect x="0" y="0" width="128" height="128" rx="8" fill="url(#bgGradient)"/>
+  
+  <!-- 超大文件夹 (占据大部分空间) -->
+  <g transform="translate(64, 80)">
+    <!-- 文件夹主体 -->
+    <rect x="-45" y="-28" width="90" height="64" rx="8" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="3"/>
+    <!-- 文件夹标签 -->
+    <rect x="-45" y="-40" width="36" height="16" rx="4" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="3"/>
+    
+    <!-- 超大项目类型圆圈 -->
+    <g transform="translate(0, -6)">
+      <!-- 本地项目 -->
+      <circle cx="-26" cy="0" r="14" fill="#10B981"/>
+      <text x="-26" y="6" font-family="Arial, sans-serif" font-size="18" fill="#FFFFFF" text-anchor="middle" font-weight="bold">L</text>
+      
+      <!-- 工作区项目 -->
+      <circle cx="0" cy="0" r="14" fill="#F59E0B"/>
+      <text x="0" y="6" font-family="Arial, sans-serif" font-size="18" fill="#FFFFFF" text-anchor="middle" font-weight="bold">W</text>
+      
+      <!-- SSH远程项目 -->
+      <circle cx="26" cy="0" r="14" fill="#8B5CF6"/>
+      <text x="26" y="6" font-family="Arial, sans-serif" font-size="18" fill="#FFFFFF" text-anchor="middle" font-weight="bold">S</text>
+    </g>
+  </g>
+  
+  <!-- 简化的导航罗盘 -->
+  <g transform="translate(64, 35)">
+    <!-- 罗盘外圈 -->
+    <circle cx="0" cy="0" r="20" fill="#FFFFFF" opacity="0.95" stroke="#1E40AF" stroke-width="3"/>
+    
+    <!-- 主要方向指针 -->
+    <g stroke="#1E40AF" stroke-width="3">
+      <line x1="0" y1="-16" x2="0" y2="-8"/>
+      <line x1="16" y1="0" x2="8" y2="0"/>
+      <line x1="0" y1="16" x2="0" y2="8"/>
+      <line x1="-16" y1="0" x2="-8" y2="0"/>
+    </g>
+    
+    <!-- 中心 -->
+    <circle cx="0" cy="0" r="6" fill="#F59E0B"/>
+    <circle cx="0" cy="0" r="3" fill="#FFFFFF"/>
+  </g>
+  
+  <!-- 连接线 -->
+  <line x1="64" y1="55" x2="64" y2="52" stroke="#FFFFFF" stroke-width="4" opacity="0.8" stroke-linecap="round"/>
+  
+  <!-- 字母 P 标识 -->
+  <g transform="translate(20, 20)">
+    <circle cx="0" cy="0" r="14" fill="#FFFFFF" opacity="0.95"/>
+    <text x="0" y="5" font-family="Arial, sans-serif" font-size="20" fill="#3B82F6" text-anchor="middle" font-weight="bold">P</text>
+  </g>
+</svg>

@@ -1,0 +1,305 @@
+{
+  "name": "project-pilot",
+  "displayName": "Project Pilot",
+  "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config.",
+  "version": "0.0.1",
+  "publisher": "yczhang1028",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "galleryBanner": {
+    "color": "#3B82F6",
+    "theme": "dark"
+  },
+  "keywords": [
+    "project",
+    "manager",
+    "workspace",
+    "ssh",
+    "remote",
+    "folder",
+    "organization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yczhang1028/project_pilot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yczhang1028/project_pilot.git/issues"
+  },
+  "homepage": "https://github.com/yczhang1028/project_pilot.git#readme",
+  "license": "MIT",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "projectPilot.showManager",
+        "title": "Show Manager",
+        "category": "Project Pilot"
+      },
+      {
+        "command": "projectPilot.openProject",
+        "title": "Open Project",
+        "category": "Project Pilot"
+      },
+      {
+        "command": "projectPilot.addLocalProject",
+        "title": "Add Local Folder",
+        "category": "Project Pilot",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "projectPilot.addWorkspaceFile",
+        "title": "Add Workspace File",
+        "category": "Project Pilot",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "projectPilot.addSshProject",
+        "title": "Add SSH Remote",
+        "category": "Project Pilot",
+        "icon": "$(remote)"
+      },
+      {
+        "command": "projectPilot.addCurrentFolder",
+        "title": "Add Current Folder",
+        "category": "Project Pilot",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "projectPilot.scanWorkspaceFolders",
+        "title": "Scan Workspace Folders",
+        "category": "Project Pilot",
+        "icon": "$(search)"
+      },
+      {
+        "command": "projectPilot.importConfig",
+        "title": "Import Configuration",
+        "category": "Project Pilot",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "projectPilot.exportConfig",
+        "title": "Export Configuration",
+        "category": "Project Pilot",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "projectPilot.showConfigPath",
+        "title": "Show Configuration Path",
+        "category": "Project Pilot",
+        "icon": "$(file-directory)"
+      },
+      {
+        "command": "projectPilot.restoreBackup",
+        "title": "Restore from Backup",
+        "category": "Project Pilot",
+        "icon": "$(history)"
+      },
+      {
+        "command": "projectPilot.createBackup",
+        "title": "Create Backup",
+        "category": "Project Pilot",
+        "icon": "$(save)"
+      },
+      {
+        "command": "projectPilot.testSshConnection",
+        "title": "Test SSH Connection",
+        "category": "Project Pilot",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "projectPilot.openConfigFile",
+        "title": "Open Configuration File",
+        "category": "Project Pilot",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "projectPilot.refreshOutline",
+        "title": "Refresh Outline",
+        "category": "Project Pilot",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "projectPilot",
+          "title": "Project Pilot",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "projectPilot": [
+        {
+          "id": "projectPilot.manager",
+          "name": "Manager",
+          "type": "webview",
+          "when": "true"
+        },
+        {
+          "id": "projectPilot.outline",
+          "name": "Outline"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "projectPilot.refreshOutline",
+          "when": "view == projectPilot.outline",
+          "group": "navigation@0"
+        },
+        {
+          "command": "projectPilot.addLocalProject",
+          "when": "view == projectPilot.outline",
+          "group": "navigation@1"
+        },
+        {
+          "command": "projectPilot.addCurrentFolder",
+          "when": "view == projectPilot.outline",
+          "group": "navigation@2"
+        },
+        {
+          "command": "projectPilot.scanWorkspaceFolders",
+          "when": "view == projectPilot.outline",
+          "group": "navigation@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "when": "view == projectPilot.outline",
+          "command": "projectPilot.openProject",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "projectPilot.showManager",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.addLocalProject",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.addWorkspaceFile",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.addSshProject",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.addCurrentFolder",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "projectPilot.scanWorkspaceFolders",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "projectPilot.importConfig",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.exportConfig",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.showConfigPath",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.restoreBackup",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.createBackup",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.testSshConnection",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.openConfigFile",
+          "when": "true"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "projectPilot.showManager",
+        "key": "ctrl+shift+p p",
+        "mac": "cmd+shift+p p"
+      },
+      {
+        "command": "projectPilot.addLocalProject",
+        "key": "ctrl+shift+p l",
+        "mac": "cmd+shift+p l"
+      },
+      {
+        "command": "projectPilot.addCurrentFolder",
+        "key": "ctrl+shift+p c",
+        "mac": "cmd+shift+p c",
+        "when": "workspaceFolderCount > 0"
+      }
+    ],
+    "configuration": {
+      "title": "Project Pilot",
+      "properties": {
+        "projectPilot.defaultView": {
+          "type": "string",
+          "enum": ["grid", "list"],
+          "default": "grid",
+          "description": "Default view mode for the project manager"
+        },
+        "projectPilot.autoBackup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically create backups when importing configurations"
+        },
+        "projectPilot.maxBackups": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Maximum number of backup files to keep"
+        },
+        "projectPilot.showTypeIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show type icons for projects in tree view"
+        },
+        "projectPilot.autoDetectTags": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically detect and suggest tags for new projects"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "npm run build:webview && npm run build:ext",
+    "build:ext": "tsc -p .",
+    "build:webview": "cd webview-ui && npm install && npm run build",
+    "watch": "npm run watch:ext",
+    "watch:ext": "tsc -w -p .",
+    "lint": "echo 'No lint configured'",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.50",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {}
+}
