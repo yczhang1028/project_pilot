@@ -214,9 +214,9 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!uri) { return; }
       
       try {
-        await store.importFromFile(uri[0]);
-        outlineProvider.refresh();
-        managerProvider.postState();
+      await store.importFromFile(uri[0]);
+      outlineProvider.refresh();
+      managerProvider.postState();
         vscode.window.showInformationMessage('Configuration imported successfully');
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to import configuration: ${error}`);
@@ -231,7 +231,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!uri) { return; }
       
       try {
-        await store.exportToFile(uri);
+      await store.exportToFile(uri);
         vscode.window.showInformationMessage('Configuration exported successfully');
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to export configuration: ${error}`);
@@ -337,6 +337,84 @@ export async function activate(context: vscode.ExtensionContext) {
       outlineProvider.refresh();
       managerProvider.postState();
       vscode.window.showInformationMessage('Project Pilot outline refreshed');
+    }),
+    vscode.commands.registerCommand('projectPilot.toggleOutlineView', () => {
+      outlineProvider.toggleView();
+      vscode.window.showInformationMessage('Outline view toggled');
+    }),
+    vscode.commands.registerCommand('projectPilot.syncConfig', async () => {
+      const choice = await vscode.window.showQuickPick([
+        {
+          label: '📤 Export to File',
+          description: 'Export configuration to a file for manual sharing',
+          action: 'export'
+        },
+        {
+          label: '📁 Export to Default Location',
+          description: 'Export to a standard location for easy sharing',
+          action: 'exportDefault'
+        },
+        {
+          label: '📥 Import from File',
+          description: 'Import configuration from a file',
+          action: 'import'
+        },
+        {
+          label: '🔄 Replace Current Config',
+          description: 'Replace current config with imported one (creates backup)',
+          action: 'replace'
+        }
+      ], {
+        placeHolder: 'Choose sync action'
+      });
+
+      if (!choice) return;
+
+      try {
+        switch (choice.action) {
+          case 'export':
+            await vscode.commands.executeCommand('projectPilot.exportConfig');
+            break;
+          
+          case 'exportDefault':
+            const defaultExportPath = vscode.Uri.joinPath(
+              vscode.Uri.file(require('os').homedir()), 
+              'project-pilot-config.json'
+            );
+            await store.exportToFile(defaultExportPath);
+            vscode.window.showInformationMessage(`Configuration exported to: ${defaultExportPath.fsPath}`);
+            break;
+          
+          case 'import':
+            await vscode.commands.executeCommand('projectPilot.importConfig');
+            break;
+          
+          case 'replace':
+            const uri = await vscode.window.showOpenDialog({ 
+              canSelectFiles: true, 
+              filters: { 'JSON Files': ['json'] },
+              title: 'Select Configuration to Replace Current'
+            });
+            if (!uri) return;
+            
+            const confirm = await vscode.window.showWarningMessage(
+              'This will completely replace your current configuration. A backup will be created. Continue?',
+              { modal: true },
+              'Yes, Replace'
+            );
+            
+            if (confirm === 'Yes, Replace') {
+              await store.createBackup();
+              await store.importFromFile(uri[0]);
+              outlineProvider.refresh();
+              managerProvider.postState();
+              vscode.window.showInformationMessage('Configuration replaced successfully');
+            }
+            break;
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(`Sync failed: ${error}`);
+      }
     })
   );
 

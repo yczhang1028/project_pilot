@@ -1,31 +1,62 @@
 import * as vscode from 'vscode';
 import { ConfigStore, ProjectItem } from './store';
 
-export class OutlineTreeProvider implements vscode.TreeDataProvider<ProjectItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<ProjectItem | undefined | null | void>();
+interface OutlineNode {
+  type: 'group' | 'project';
+  label: string;
+  project?: ProjectItem;
+  groupName?: string;
+}
+
+export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<OutlineNode | undefined | null | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  private isGroupedView = true; // 默认使用分组视图
 
   constructor(private readonly store: ConfigStore) {}
 
-  refresh(element?: ProjectItem): void {
+  refresh(element?: OutlineNode): void {
     this._onDidChangeTreeData.fire(element);
   }
 
-  getTreeItem(element: ProjectItem): vscode.TreeItem {
-    const item = new vscode.TreeItem(element.name, vscode.TreeItemCollapsibleState.None);
+  toggleView(): void {
+    this.isGroupedView = !this.isGroupedView;
+    this.refresh();
+  }
+
+  getTreeItem(element: OutlineNode): vscode.TreeItem {
+    if (element.type === 'group') {
+      // 分组节点
+      const item = new vscode.TreeItem(
+        element.label, 
+        vscode.TreeItemCollapsibleState.Expanded
+      );
+      item.iconPath = new vscode.ThemeIcon('folder');
+      item.tooltip = `Group: ${element.groupName}\nProjects: ${element.label.match(/\((\d+)\)/)?.[1] || '0'}`;
+      item.contextValue = 'group';
+      return item;
+    }
+
+    // 项目节点
+    const project = element.project!;
+    const item = new vscode.TreeItem(project.name, vscode.TreeItemCollapsibleState.None);
     
-    // 显示分组和路径信息
-    const groupInfo = element.group ? `[${element.group}] ` : '';
-    item.description = `${groupInfo}${element.path}`;
+    // 在分组视图中只显示路径，在平铺视图中显示分组和路径
+    if (this.isGroupedView) {
+      item.description = project.path;
+    } else {
+      const groupInfo = project.group ? `[${project.group}] ` : '';
+      item.description = `${groupInfo}${project.path}`;
+    }
     
     // 丰富的tooltip信息
-    let tooltip = `${element.name}`;
-    if (element.description) tooltip += `\n${element.description}`;
-    if (element.group) tooltip += `\n\nGroup: ${element.group}`;
-    tooltip += `\nPath: ${element.path}`;
-    tooltip += `\nType: ${element.type}`;
-    if (element.tags && element.tags.length > 0) {
-      tooltip += `\nTags: ${element.tags.join(', ')}`;
+    let tooltip = `${project.name}`;
+    if (project.description) tooltip += `\n${project.description}`;
+    if (project.group) tooltip += `\n\nGroup: ${project.group}`;
+    tooltip += `\nPath: ${project.path}`;
+    tooltip += `\nType: ${project.type}`;
+    if (project.tags && project.tags.length > 0) {
+      tooltip += `\nTags: ${project.tags.join(', ')}`;
     }
     item.tooltip = tooltip;
     
@@ -36,17 +67,59 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<ProjectItem>
       ssh: 'remote'
     };
     
-    item.iconPath = element.icon 
-      ? vscode.Uri.parse(element.icon)  // 如果有自定义图标
-      : new vscode.ThemeIcon(typeIcons[element.type], new vscode.ThemeColor(element.color || 'charts.blue'));
+    item.iconPath = project.icon 
+      ? vscode.Uri.parse(project.icon)  // 如果有自定义图标
+      : new vscode.ThemeIcon(typeIcons[project.type], new vscode.ThemeColor(project.color || 'charts.blue'));
     
-    item.command = { command: 'projectPilot.openProject', title: 'Open', arguments: [element] };
-    contextValue(item, element);
+    item.command = { command: 'projectPilot.openProject', title: 'Open', arguments: [project] };
+    contextValue(item, project);
     return item;
   }
 
-  getChildren(): vscode.ProviderResult<ProjectItem[]> {
-    return this.store.state.projects;
+  getChildren(element?: OutlineNode): vscode.ProviderResult<OutlineNode[]> {
+    if (!this.isGroupedView) {
+      // 平铺视图：直接返回所有项目
+      return this.store.state.projects.map(project => ({
+        type: 'project' as const,
+        label: project.name,
+        project
+      }));
+    }
+
+    if (!element) {
+      // 分组视图：返回分组节点
+      const groups = new Set<string>();
+      this.store.state.projects.forEach(project => {
+        const group = project.group || 'Ungrouped';
+        groups.add(group);
+      });
+      
+      return Array.from(groups).sort().map(groupName => {
+        const projectCount = this.store.state.projects.filter(p => 
+          (p.group || 'Ungrouped') === groupName
+        ).length;
+        
+        return {
+          type: 'group' as const,
+          label: `${groupName} (${projectCount})`,
+          groupName
+        };
+      });
+    }
+
+    if (element.type === 'group') {
+      // 返回指定分组的项目
+      return this.store.state.projects
+        .filter(project => (project.group || 'Ungrouped') === element.groupName)
+        .map(project => ({
+          type: 'project' as const,
+          label: project.name,
+          project
+        }));
+    }
+
+    // 项目节点没有子节点
+    return [];
   }
 
   async pickProject(): Promise<ProjectItem | undefined> {

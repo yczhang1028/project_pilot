@@ -33,6 +33,8 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('projectPilot.exportConfig');
       } else if (msg.type === 'openConfig') {
         await vscode.commands.executeCommand('projectPilot.openConfigFile');
+      } else if (msg.type === 'sync') {
+        await vscode.commands.executeCommand('projectPilot.syncConfig');
       } else if (msg.type === 'testConnection') {
         // 测试SSH连接
         const result = await this.testSshConnection(msg.payload);
