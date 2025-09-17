@@ -1,8 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 type ProjectType = 'local' | 'workspace' | 'ssh';
-type ProjectItem = { id?: string; name: string; path: string; description?: string; icon?: string; color?: string; tags?: string[]; group?: string; type: ProjectType };
-type State = { projects: ProjectItem[] };
+type ProjectItem = { 
+  id?: string; 
+  name: string; 
+  path: string; 
+  description?: string; 
+  icon?: string; 
+  color?: string; 
+  tags?: string[]; 
+  group?: string; 
+  type: ProjectType;
+  isFavorite?: boolean;
+  clickCount?: number;
+  lastAccessed?: string;
+};
+type UISettings = {
+  compactMode?: boolean;
+  viewMode?: 'grid' | 'list';
+  selectedGroup?: string;
+};
+type State = { 
+  projects: ProjectItem[];
+  uiSettings?: UISettings;
+};
 
 declare const acquireVsCodeApi: any;
 const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : { postMessage: console.log };
@@ -44,6 +65,7 @@ export default function App() {
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showByGroup, setShowByGroup] = useState(true);
   const [compactMode, setCompactMode] = useState(false);
@@ -56,10 +78,27 @@ export default function App() {
       console.log('Project Pilot: Received message', e.data);
       if (e.data?.type === 'state') {
         console.log('Project Pilot: Setting state', e.data.payload);
-        setState(e.data.payload as State);
+        const newState = e.data.payload as State;
+        setState(newState);
+        
+        // 同步UI设置到本地状态
+        if (newState.uiSettings) {
+          if (newState.uiSettings.compactMode !== undefined) {
+            setCompactMode(newState.uiSettings.compactMode);
+          }
+          if (newState.uiSettings.viewMode !== undefined) {
+            setViewMode(newState.uiSettings.viewMode);
+          }
+          if (newState.uiSettings.selectedGroup !== undefined) {
+            setSelectedGroup(newState.uiSettings.selectedGroup);
+          }
+        }
       } else if (e.data?.type === 'connectionTestResult') {
         // 处理连接测试结果
         window.dispatchEvent(new CustomEvent('connectionTestResult', { detail: e.data.payload }));
+      } else if (e.data?.type === 'pathSelected') {
+        // 处理路径选择结果
+        window.dispatchEvent(new CustomEvent('pathSelected', { detail: e.data.payload }));
       }
     };
     window.addEventListener('message', listener);
@@ -113,6 +152,11 @@ export default function App() {
       result = result.filter(p => [p.name, p.path, p.description, ...(p.tags ?? [])].some(x => (x ?? '').toLowerCase().includes(term)));
     }
     
+    // Filter by favorites
+    if (showFavoritesOnly) {
+      result = result.filter(p => p.isFavorite);
+    }
+    
     // Filter by tag
     if (selectedTag) {
       result = result.filter(p => p.tags?.includes(selectedTag));
@@ -134,7 +178,7 @@ export default function App() {
     });
     
     return result;
-  }, [state.projects, q, selectedTag, selectedGroup, sortBy]);
+  }, [state.projects, q, showFavoritesOnly, selectedTag, selectedGroup, sortBy]);
 
   const groupedProjects = useMemo(() => {
     const groups: { [key: string]: ProjectItem[] } = {};
@@ -165,6 +209,21 @@ export default function App() {
     };
     vscode.postMessage({ type: 'addOrUpdate', payload: newProject });
     setNewProjectType(null);
+  };
+
+  // 更新UI设置到后端
+  const updateUISettings = (settings: Partial<UISettings>) => {
+    vscode.postMessage({ type: 'updateUISettings', payload: settings });
+  };
+
+  // 记录项目访问
+  const recordProjectAccess = (id: string) => {
+    vscode.postMessage({ type: 'recordProjectAccess', payload: { id } });
+  };
+
+  // 切换收藏状态
+  const toggleProjectFavorite = (id: string) => {
+    vscode.postMessage({ type: 'toggleFavorite', payload: { id } });
   };
 
   return (
@@ -263,7 +322,11 @@ export default function App() {
                 borderColor: theme.inputBorder
               }}
               value={selectedGroup} 
-              onChange={e => setSelectedGroup(e.target.value)}
+              onChange={e => {
+                const newGroup = e.target.value;
+                setSelectedGroup(newGroup);
+                updateUISettings({ selectedGroup: newGroup });
+              }}
             >
               <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>All Groups</option>
               {allGroups.map(group => (
@@ -278,7 +341,10 @@ export default function App() {
                   backgroundColor: viewMode === 'grid' ? theme.listActiveSelectionBackground : theme.inputBackground,
                   color: viewMode === 'grid' ? theme.buttonForeground : theme.inputForeground
                 }}
-                onClick={() => setViewMode('grid')}
+                onClick={() => {
+                  setViewMode('grid');
+                  updateUISettings({ viewMode: 'grid' });
+                }}
               >
                 Grid
               </button>
@@ -288,7 +354,10 @@ export default function App() {
                   backgroundColor: viewMode === 'list' ? theme.listActiveSelectionBackground : theme.inputBackground,
                   color: viewMode === 'list' ? theme.buttonForeground : theme.inputForeground
                 }}
-                onClick={() => setViewMode('list')}
+                onClick={() => {
+                  setViewMode('list');
+                  updateUISettings({ viewMode: 'list' });
+                }}
               >
                 List
               </button>
@@ -310,11 +379,28 @@ export default function App() {
             <button 
               className="px-2 py-1 text-xs rounded border"
               style={{
+                backgroundColor: showFavoritesOnly ? theme.listActiveSelectionBackground : theme.inputBackground,
+                color: showFavoritesOnly ? theme.buttonForeground : theme.inputForeground,
+                borderColor: theme.inputBorder
+              }}
+              onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+              title="Show favorites only"
+            >
+              {showFavoritesOnly ? '⭐' : '☆'}
+            </button>
+            
+            <button 
+              className="px-2 py-1 text-xs rounded border"
+              style={{
                 backgroundColor: compactMode ? theme.listActiveSelectionBackground : theme.inputBackground,
                 color: compactMode ? theme.buttonForeground : theme.inputForeground,
                 borderColor: theme.inputBorder
               }}
-              onClick={() => setCompactMode(!compactMode)}
+              onClick={() => {
+                const newCompactMode = !compactMode;
+                setCompactMode(newCompactMode);
+                updateUISettings({ compactMode: newCompactMode });
+              }}
               title="Toggle compact mode"
             >
               {compactMode ? '📦' : '📏'}
@@ -417,7 +503,12 @@ export default function App() {
       >
         <div className="flex justify-between items-center mb-4">
           <h2 className="font-medium" style={{ color: theme.foreground }}>
-            Projects ({filtered.length})
+            {showFavoritesOnly ? `Favorites (${filtered.length})` : `Projects (${filtered.length})`}
+            {!showFavoritesOnly && state.projects.filter(p => p.isFavorite).length > 0 && (
+              <span className="ml-2 text-xs" style={{ color: theme.foreground, opacity: 0.6 }}>
+                • {state.projects.filter(p => p.isFavorite).length} favorited
+              </span>
+            )}
           </h2>
         </div>
         
@@ -488,7 +579,11 @@ export default function App() {
                       allGroups={allGroups}
                       onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
                       onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
-                      onOpen={() => vscode.postMessage({ type: 'open', payload: p })}
+                      onOpen={() => {
+                        recordProjectAccess(p.id!);
+                        vscode.postMessage({ type: 'open', payload: p });
+                      }}
+                      onToggleFavorite={toggleProjectFavorite}
                     />
         ))}
       </div>
@@ -514,7 +609,11 @@ export default function App() {
                 allGroups={allGroups}
                 onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
                 onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
-                onOpen={() => vscode.postMessage({ type: 'open', payload: p })}
+                onOpen={() => {
+                  recordProjectAccess(p.id!);
+                  vscode.postMessage({ type: 'open', payload: p });
+                }}
+                onToggleFavorite={toggleProjectFavorite}
               />
             ))}
           </div>
@@ -547,7 +646,7 @@ export default function App() {
   );
 }
 
-function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, onOpen }: { 
+function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, onOpen, onToggleFavorite }: { 
   p: ProjectItem; 
   viewMode: ViewMode;
   compactMode: boolean;
@@ -556,6 +655,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   onChange: (p: ProjectItem) => void; 
   onDelete: () => void;
   onOpen: () => void;
+  onToggleFavorite: (id: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -608,29 +708,29 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
               className="w-3 h-3 rounded-full flex-shrink-0"
               style={{ backgroundColor: p.color }}
             ></div>
-            <h3 className="font-medium truncate" style={{ color: theme.foreground }} title={p.description || p.name}>
+            <h3 className={`${compactMode ? "text-sm font-medium" : "font-medium"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
               {p.name}
             </h3>
-            <span className={`px-2 py-1 rounded-full text-xs font-medium ${typeColors[p.type]}`}>
+            <span className={`${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium ${typeColors[p.type]}`}>
               {p.type}
             </span>
           </div>
           {p.description && (
-            <p className="text-sm truncate mt-1" style={{ color: theme.foreground, opacity: 0.8 }} title={p.description}>
+            <p className={`${compactMode ? "text-xs" : "text-sm"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.8 }} title={p.description}>
               {p.description}
             </p>
           )}
-          <p className="text-xs truncate mt-1" style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
+          <p className={`${compactMode ? "text-xs" : "text-xs"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
           {p.tags && p.tags.length > 0 && (
-            <div className="flex gap-1 mt-2">
-              {p.tags.slice(0, 3).map(tag => (
-                <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
+            <div className={`flex gap-1 ${compactMode ? "mt-1" : "mt-2"}`}>
+              {p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
+                <span key={tag} className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
                   {tag}
                 </span>
               ))}
-              {p.tags.length > 3 && (
-                <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-full text-xs">
-                  +{p.tags.length - 3}
+              {p.tags.length > (compactMode ? 2 : 3) && (
+                <span className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
+                  +{p.tags.length - (compactMode ? 2 : 3)}
                 </span>
               )}
             </div>
@@ -638,6 +738,15 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         </div>
         
         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            className={`p-2 rounded-lg transition-colors ${p.isFavorite ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-500 hover:text-yellow-600'} hover:bg-yellow-50`}
+            onClick={() => onToggleFavorite(p.id!)}
+            title={p.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          >
+            <svg className="w-4 h-4" fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+          </button>
           <button
             className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
             onClick={onOpen}
@@ -740,18 +849,18 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: p.color }}
               ></div>
-              <h3 className="font-medium truncate" style={{ color: theme.foreground }} title={p.description || p.name}>
+              <h3 className={`${compactMode ? "text-sm" : "font-medium"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
                 {p.name}
               </h3>
             </div>
             {p.description && (
-              <p className="text-sm truncate mt-1" style={{ color: theme.foreground, opacity: 0.8 }} title={p.description}>
+              <p className={`${compactMode ? "text-xs" : "text-sm"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.8 }} title={p.description}>
                 {p.description}
               </p>
             )}
-            <p className="text-xs truncate mt-1" style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
+            <p className={`${compactMode ? "text-xs" : "text-xs"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
           </div>
-          <span className={`ml-2 px-2 py-1 rounded-full text-xs font-medium ${typeColors[p.type]}`}>
+          <span className={`ml-2 ${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium ${typeColors[p.type]}`}>
             {p.type}
           </span>
         </div>
@@ -759,12 +868,12 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         {p.tags && p.tags.length > 0 && (
           <div className={`flex flex-wrap gap-1 ${compactMode ? "mb-1" : "mb-3"}`}>
             {p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
-              <span key={tag} className={`px-2 py-1 bg-gray-100 text-gray-600 rounded-full ${compactMode ? "text-xs" : "text-xs"}`}>
+              <span key={tag} className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
                 {tag}
               </span>
             ))}
             {p.tags.length > (compactMode ? 2 : 3) && (
-              <span className={`px-2 py-1 bg-gray-100 text-gray-600 rounded-full ${compactMode ? "text-xs" : "text-xs"}`}>
+              <span className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
                 +{p.tags.length - (compactMode ? 2 : 3)}
               </span>
             )}
@@ -785,6 +894,29 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             Open
           </button>
           <div className="flex gap-1 ml-2">
+            <button
+              className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
+              style={{ 
+                color: p.isFavorite ? '#eab308' : theme.foreground,
+                opacity: p.isFavorite ? 1 : 0.6
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.backgroundColor = '#fef3c7';
+                e.currentTarget.style.color = '#eab308';
+                e.currentTarget.style.opacity = '1';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = p.isFavorite ? '#eab308' : theme.foreground;
+                e.currentTarget.style.opacity = p.isFavorite ? '1' : '0.6';
+              }}
+              onClick={() => onToggleFavorite(p.id!)}
+              title={p.isFavorite ? "Remove from favorites" : "Add to favorites"}
+            >
+              <svg className={compactMode ? "w-3 h-3" : "w-4 h-4"} fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
+            </button>
             <button
               className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
               style={{ 
@@ -904,9 +1036,25 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       }, 5000);
     };
 
+    const handlePathSelected = (event: any) => {
+      const { path, inputType } = event.detail;
+      if (path) {
+        setEditedProject({ ...editedProject, path });
+        // 如果是文件夹，可以自动设置项目名称
+        if (inputType === 'folder' && !editedProject.name.trim()) {
+          const folderName = path.split(/[/\\]/).pop() || 'New Project';
+          setEditedProject(prev => ({ ...prev, path, name: folderName }));
+        }
+      }
+    };
+
     window.addEventListener('connectionTestResult', handleTestResult);
-    return () => window.removeEventListener('connectionTestResult', handleTestResult);
-  }, []);
+    window.addEventListener('pathSelected', handlePathSelected);
+    return () => {
+      window.removeEventListener('connectionTestResult', handleTestResult);
+      window.removeEventListener('pathSelected', handlePathSelected);
+    };
+  }, [editedProject]);
 
   // 预设的漂亮颜色
   const presetColors = [
@@ -949,6 +1097,27 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
         }
       }
     }
+  };
+
+  const handleCreateGroup = () => {
+    const trimmedName = newGroupName.trim();
+    if (trimmedName) {
+      // 检查是否已存在相同分组
+      if (allGroups.includes(trimmedName)) {
+        // 如果已存在，直接选择该分组
+        setEditedProject(prev => ({ ...prev, group: trimmedName }));
+      } else {
+        // 创建新分组
+        setEditedProject(prev => ({ ...prev, group: trimmedName }));
+      }
+      setIsCreatingNewGroup(false);
+      setNewGroupName('');
+    }
+  };
+
+  const handleCancelCreateGroup = () => {
+    setIsCreatingNewGroup(false);
+    setNewGroupName('');
   };
 
   const testSshConnection = async () => {
@@ -1042,10 +1211,38 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   borderColor: theme.inputBorder,
                   '--tw-ring-color': theme.focusBorder
                 } as React.CSSProperties}
-                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path' : 'Project path'}
+                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
                 value={editedProject.path}
                 onChange={e => setEditedProject({ ...editedProject, path: e.target.value })}
               />
+              {editedProject.type === 'local' && (
+                <button
+                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
+                  style={{
+                    backgroundColor: theme.inputBackground,
+                    color: theme.inputForeground,
+                    borderColor: theme.inputBorder
+                  }}
+                  onClick={() => vscode.postMessage({ type: 'browseFolder', payload: { currentPath: editedProject.path } })}
+                  title="Browse for folder"
+                >
+                  📁 Browse
+                </button>
+              )}
+              {editedProject.type === 'workspace' && (
+                <button
+                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
+                  style={{
+                    backgroundColor: theme.inputBackground,
+                    color: theme.inputForeground,
+                    borderColor: theme.inputBorder
+                  }}
+                  onClick={() => vscode.postMessage({ type: 'browseWorkspace', payload: { currentPath: editedProject.path } })}
+                  title="Browse for workspace file"
+                >
+                  🗂️ Browse
+                </button>
+              )}
               {editedProject.type === 'ssh' && (
                 <div className="flex gap-1">
                   <button
@@ -1127,6 +1324,15 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   placeholder="Enter new group name"
                   value={newGroupName}
                   onChange={e => setNewGroupName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreateGroup();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      handleCancelCreateGroup();
+                    }
+                  }}
                   autoFocus
                 />
                 <button
@@ -1136,13 +1342,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                     color: theme.buttonForeground,
                     borderColor: theme.buttonBackground
                   }}
-                  onClick={() => {
-                    if (newGroupName.trim()) {
-                      setEditedProject({ ...editedProject, group: newGroupName.trim() });
-                      setIsCreatingNewGroup(false);
-                      setNewGroupName('');
-                    }
-                  }}
+                  onClick={handleCreateGroup}
+                  disabled={!newGroupName.trim()}
                 >
                   ✓
                 </button>
@@ -1153,10 +1354,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                     color: theme.inputForeground,
                     borderColor: theme.inputBorder
                   }}
-                  onClick={() => {
-                    setIsCreatingNewGroup(false);
-                    setNewGroupName('');
-                  }}
+                  onClick={handleCancelCreateGroup}
                 >
                   ✕
                 </button>
@@ -1175,6 +1373,12 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   onChange={e => setEditedProject({ ...editedProject, group: e.target.value || undefined })}
                 >
                   <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>No Group</option>
+                  {/* 显示当前项目的分组（如果是新创建的） */}
+                  {editedProject.group && !allGroups.includes(editedProject.group) && (
+                    <option key={editedProject.group} value={editedProject.group} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>
+                      {editedProject.group} (new)
+                    </option>
+                  )}
                   {allGroups.map(group => (
                     <option key={group} value={group} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>
                       {group}

@@ -32,6 +32,14 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('projectPilot.showManager', () => {
       vscode.commands.executeCommand('workbench.view.extension.projectPilot');
     }),
+    vscode.commands.registerCommand('projectPilot.openNewWindow', async () => {
+      // 打开新窗口并显示Project Pilot
+      await vscode.commands.executeCommand('workbench.action.newWindow');
+      // 等待新窗口加载完成后显示Project Pilot视图
+      setTimeout(() => {
+        vscode.commands.executeCommand('workbench.view.extension.projectPilot');
+      }, 1000);
+    }),
     vscode.commands.registerCommand('projectPilot.openProject', async (item?: ProjectItem) => {
       const target = item ?? (await outlineProvider.pickProject());
       if (!target) { return; }
@@ -414,6 +422,20 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       } catch (error) {
         vscode.window.showErrorMessage(`Sync failed: ${error}`);
+      }
+    }),
+    vscode.commands.registerCommand('projectPilot.addToFavorites', async (item?: any) => {
+      // 从outline tree view获取项目
+      if (item?.project?.id) {
+        await store.toggleFavorite(item.project.id);
+        vscode.window.showInformationMessage(`Added "${item.project.name}" to favorites`);
+      }
+    }),
+    vscode.commands.registerCommand('projectPilot.removeFromFavorites', async (item?: any) => {
+      // 从outline tree view获取项目
+      if (item?.project?.id) {
+        await store.toggleFavorite(item.project.id);
+        vscode.window.showInformationMessage(`Removed "${item.project.name}" from favorites`);
       }
     })
   );

@@ -39,6 +39,46 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
         // 测试SSH连接
         const result = await this.testSshConnection(msg.payload);
         webviewView.webview.postMessage({ type: 'connectionTestResult', payload: result });
+      } else if (msg.type === 'updateUISettings') {
+        await this.store.updateUISettings(msg.payload);
+        this.postState(webviewView);
+      } else if (msg.type === 'recordProjectAccess') {
+        await this.store.recordProjectAccess(msg.payload.id);
+        this.postState(webviewView);
+      } else if (msg.type === 'toggleFavorite') {
+        await this.store.toggleFavorite(msg.payload.id);
+        this.postState(webviewView);
+      } else if (msg.type === 'browseFolder') {
+        const result = await vscode.window.showOpenDialog({
+          canSelectFolders: true,
+          canSelectFiles: false,
+          canSelectMany: false,
+          title: 'Select Project Folder',
+          defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+        });
+        if (result && result[0]) {
+          webviewView.webview.postMessage({ 
+            type: 'pathSelected', 
+            payload: { path: result[0].fsPath, inputType: 'folder' } 
+          });
+        }
+      } else if (msg.type === 'browseWorkspace') {
+        const result = await vscode.window.showOpenDialog({
+          canSelectFolders: false,
+          canSelectFiles: true,
+          canSelectMany: false,
+          title: 'Select Workspace File',
+          filters: {
+            'Workspace Files': ['code-workspace']
+          },
+          defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+        });
+        if (result && result[0]) {
+          webviewView.webview.postMessage({ 
+            type: 'pathSelected', 
+            payload: { path: result[0].fsPath, inputType: 'workspace' } 
+          });
+        }
       }
     });
     this.currentView = webviewView;

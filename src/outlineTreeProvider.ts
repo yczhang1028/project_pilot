@@ -51,6 +51,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     
     // 丰富的tooltip信息
     let tooltip = `${project.name}`;
+    if (project.isFavorite) tooltip += ` ⭐`;
     if (project.description) tooltip += `\n${project.description}`;
     if (project.group) tooltip += `\n\nGroup: ${project.group}`;
     tooltip += `\nPath: ${project.path}`;
@@ -58,6 +59,8 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     if (project.tags && project.tags.length > 0) {
       tooltip += `\nTags: ${project.tags.join(', ')}`;
     }
+    if (project.isFavorite) tooltip += `\n⭐ Favorited`;
+    if (project.clickCount) tooltip += `\nAccessed: ${project.clickCount} times`;
     item.tooltip = tooltip;
     
     // 根据类型设置图标
@@ -67,9 +70,14 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
       ssh: 'remote'
     };
     
-    item.iconPath = project.icon 
-      ? vscode.Uri.parse(project.icon)  // 如果有自定义图标
-      : new vscode.ThemeIcon(typeIcons[project.type], new vscode.ThemeColor(project.color || 'charts.blue'));
+    // 为收藏项目设置特殊图标
+    if (project.isFavorite) {
+      item.iconPath = new vscode.ThemeIcon('star-full', new vscode.ThemeColor('charts.yellow'));
+    } else if (project.icon) {
+      item.iconPath = vscode.Uri.parse(project.icon);  // 如果有自定义图标
+    } else {
+      item.iconPath = new vscode.ThemeIcon(typeIcons[project.type], new vscode.ThemeColor(project.color || 'charts.blue'));
+    }
     
     item.command = { command: 'projectPilot.openProject', title: 'Open', arguments: [project] };
     contextValue(item, project);
@@ -130,5 +138,11 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
 }
 
 function contextValue(item: vscode.TreeItem, p: ProjectItem) {
-  item.contextValue = `type:${p.type}`;
+  const contexts = [`type:${p.type}`];
+  if (p.isFavorite) {
+    contexts.push('favorited');
+  } else {
+    contexts.push('not-favorited');
+  }
+  item.contextValue = contexts.join(',');
 }

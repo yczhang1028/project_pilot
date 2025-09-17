@@ -12,10 +12,20 @@ export interface ProjectItem {
   tags?: string[];
   group?: string; // 项目分组
   type: ProjectType;
+  isFavorite?: boolean; // 是否收藏
+  clickCount?: number; // 点击次数
+  lastAccessed?: string; // 最后访问时间
+}
+
+export interface UISettings {
+  compactMode?: boolean;
+  viewMode?: 'grid' | 'list';
+  selectedGroup?: string;
 }
 
 interface State {
   projects: ProjectItem[];
+  uiSettings?: UISettings;
 }
 
 export class ConfigStore {
@@ -27,6 +37,14 @@ export class ConfigStore {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   get state() { return this._state; }
+  
+  get uiSettings(): UISettings {
+    return this._state.uiSettings || {
+      compactMode: false,
+      viewMode: 'grid',
+      selectedGroup: ''
+    };
+  }
 
   setOnChangeCallback(callback: () => void) {
     this.onChangeCallback = callback;
@@ -40,6 +58,13 @@ export class ConfigStore {
       const buf = await vscode.workspace.fs.readFile(this.fileUri);
       this._state = JSON.parse(Buffer.from(buf).toString('utf8')) as State;
       if (!this._state.projects) this._state.projects = [];
+      if (!this._state.uiSettings) {
+        this._state.uiSettings = {
+          compactMode: false,
+          viewMode: 'grid',
+          selectedGroup: ''
+        };
+      }
     } catch {
       // 如果配置文件不存在，创建一个示例项目
       this._state = {
@@ -55,7 +80,12 @@ export class ConfigStore {
             group: 'Getting Started',
             icon: ''
           }
-        ]
+        ],
+        uiSettings: {
+          compactMode: false,
+          viewMode: 'grid',
+          selectedGroup: ''
+        }
       };
       await this.save();
     }
@@ -128,6 +158,66 @@ export class ConfigStore {
 
   async deleteProject(id: string) {
     this._state.projects = this._state.projects.filter(p => p.id !== id);
+    await this.save();
+    if (this.onChangeCallback) {
+      this.onChangeCallback();
+    }
+  }
+
+  async recordProjectAccess(id: string) {
+    const project = this._state.projects.find(p => p.id === id);
+    if (project) {
+      project.clickCount = (project.clickCount || 0) + 1;
+      project.lastAccessed = new Date().toISOString();
+      await this.save();
+      if (this.onChangeCallback) {
+        this.onChangeCallback();
+      }
+    }
+  }
+
+  async toggleFavorite(id: string) {
+    const project = this._state.projects.find(p => p.id === id);
+    if (project) {
+      project.isFavorite = !project.isFavorite;
+      
+      // 收藏功能完全独立于分组系统
+      if (project.isFavorite) {
+        // 只添加favorite标签，不改变分组
+        if (!project.tags) {
+          project.tags = [];
+        }
+        if (!project.tags.includes('favorite')) {
+          project.tags.push('favorite');
+        }
+      } else {
+        // 取消收藏时，只移除favorite标签
+        if (project.tags) {
+          project.tags = project.tags.filter(tag => tag !== 'favorite');
+        }
+      }
+      
+      await this.save();
+      if (this.onChangeCallback) {
+        this.onChangeCallback();
+      }
+    }
+  }
+
+  async updateUISettings(settings: Partial<UISettings>) {
+    if (!this._state.uiSettings) {
+      this._state.uiSettings = {
+        compactMode: false,
+        viewMode: 'grid',
+        selectedGroup: ''
+      };
+    }
+    
+    this._state.uiSettings = {
+      ...this._state.uiSettings,
+      ...settings
+    };
+    
     await this.save();
     if (this.onChangeCallback) {
       this.onChangeCallback();

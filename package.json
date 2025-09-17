@@ -2,8 +2,9 @@
   "name": "project-pilot",
   "displayName": "Project Pilot",
   "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config.",
-  "version": "0.0.1",
+  "version": "0.1.3",
   "publisher": "yczhang1028",
+  "icon": "media/icon-512x512.png",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -44,6 +45,12 @@
         "command": "projectPilot.showManager",
         "title": "Show Manager",
         "category": "Project Pilot"
+      },
+      {
+        "command": "projectPilot.openNewWindow",
+        "title": "Open in New Window",
+        "category": "Project Pilot",
+        "icon": "$(window)"
       },
       {
         "command": "projectPilot.openProject",
@@ -139,6 +146,18 @@
         "title": "Sync Configuration",
         "category": "Project Pilot",
         "icon": "$(sync)"
+      },
+      {
+        "command": "projectPilot.addToFavorites",
+        "title": "Add to Favorites",
+        "category": "Project Pilot",
+        "icon": "$(star-empty)"
+      },
+      {
+        "command": "projectPilot.removeFromFavorites",
+        "title": "Remove from Favorites",
+        "category": "Project Pilot",
+        "icon": "$(star-full)"
       }
     ],
     "viewsContainers": {
@@ -150,7 +169,6 @@
         }
       ]
     },
-    "icon": "media/icon.svg",
     "views": {
       "projectPilot": [
         {
@@ -178,6 +196,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "projectPilot.openNewWindow",
+          "when": "view == projectPilot.manager",
+          "group": "navigation@0"
+        },
+        {
           "command": "projectPilot.addLocalProject",
           "when": "view == projectPilot.outline",
           "group": "navigation@2"
@@ -198,6 +221,16 @@
           "when": "view == projectPilot.outline",
           "command": "projectPilot.openProject",
           "group": "navigation@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /not-favorited/",
+          "command": "projectPilot.addToFavorites",
+          "group": "favorites@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /favorited/",
+          "command": "projectPilot.removeFromFavorites",
+          "group": "favorites@1"
         }
       ],
       "commandPalette": [
