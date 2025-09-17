@@ -2,6 +2,17 @@
 
 A modern, powerful project manager for Visual Studio Code that supports local folders, workspace files, and SSH remote projects with a beautiful React-based interface.
 
+## 📦 Installation
+
+[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/yczhang1028.project-pilot?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=yczhang1028.project-pilot)
+[![Open VSX Registry](https://img.shields.io/open-vsx/v/yczhang1028/project-pilot?label=Open%20VSX%20Registry&logo=eclipse-ide)](https://open-vsx.org/extension/yczhang1028/project-pilot)
+
+**Install from VS Code Marketplace:**
+- [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=yczhang1028.project-pilot)
+
+**Install from Open VSX Registry (for Cursor and other editors):**
+- [Open VSX Registry](https://open-vsx.org/extension/yczhang1028/project-pilot)
+
 ![Project Pilot Main Interface](media/demo/demo_manager.png)
 
 *Project Pilot's main interface showing projects in grouped view with customizable colors and tags*
