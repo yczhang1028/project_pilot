@@ -2,6 +2,15 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [0.1.4] - 2025-09-17
+
+### Optimization
+- 📦 **Package Size Optimization**: Added comprehensive `.vscodeignore` file to significantly reduce extension package size
+  - Reduced package size from 18.05MB to 140.92KB (99.2% reduction)
+  - Reduced file count from 3420 to 26 files
+  - Excluded development files, source code, and unnecessary assets
+  - Improved installation and update performance
+
 ## [0.1.3] - 2025-09-16
 
 - Update Icon

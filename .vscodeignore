@@ -1,0 +1,43 @@
+# Source files
+src/**/*.ts
+webview-ui/src/**
+webview-ui/node_modules/**
+webview-ui/package*.json
+webview-ui/vite.config.ts
+webview-ui/tailwind.config.js
+webview-ui/postcss.config.js
+webview-ui/tsconfig.json
+
+# Development files
+.vscode/**
+.vscode-test/**
+node_modules/**
+*.vsix
+
+# Build artifacts
+out/test/**
+src/test/**
+**/*.test.ts
+**/*.spec.ts
+
+# Documentation and media (keep only essential)
+media/demo/**
+.cursor/**
+
+# Git and project files
+.git/**
+.gitignore
+tsconfig.json
+*.md
+!README.md
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Project specific
+projects.json
+prompt.md
+Introduction.md
