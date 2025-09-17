@@ -2,6 +2,32 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [0.2.0] - 2025-09-17
+
+### 🎯 Major Architecture Improvement
+- **Extension Kind Configuration**: Added `extensionKind: ["ui"]` to ensure the extension always runs locally
+  - Fixes the "This extension is enabled in the Remote Extension Host" warning
+  - Ensures unified project management regardless of remote connections
+  - All project configurations remain stored locally for consistency
+
+### 📖 Documentation Enhancement
+- **README Updates**: Added clear explanations about local vs remote execution
+  - Added installation links for both VS Code Marketplace and Open VSX Registry
+  - Enhanced SSH Remote Projects section with important notes about local execution
+  - Updated configuration files section to emphasize local storage
+
+### 🔧 Code Improvements  
+- **Enhanced Comments**: Added detailed comments explaining local management architecture
+- **Configuration Path Display**: Updated messages to clarify that configurations are stored locally
+- **SSH Project Handling**: Improved comments explaining how SSH projects work with local configuration
+
+### 🛠️ Development Tools
+- **Build Script**: Created unified `build-and-publish.ps1` script for streamlined publishing
+- **Environment Configuration**: Added support for `.env` file to securely manage publishing tokens
+
+### 📝 Description Update
+- Updated extension description to emphasize "Runs locally to manage all your projects from one place"
+
 ## [0.1.4] - 2025-09-17
 
 ### Optimization

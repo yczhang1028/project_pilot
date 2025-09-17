@@ -1,13 +1,16 @@
 {
   "name": "project-pilot",
   "displayName": "Project Pilot",
-  "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config.",
-  "version": "0.1.4",
+  "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config. Runs locally to manage all your projects from one place.",
+  "version": "0.2.0",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
     "vscode": "^1.90.0"
   },
+  "extensionKind": [
+    "ui"
+  ],
   "categories": [
     "Other"
   ],

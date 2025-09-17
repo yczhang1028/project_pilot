@@ -157,10 +157,12 @@ Access settings via `File > Preferences > Settings > Project Pilot`:
 ## 📁 Configuration Files
 
 ### Location
-Configuration files are stored in VS Code's global storage:
+Configuration files are stored locally in VS Code's global storage on your machine:
 - **Windows**: `%APPDATA%/Code/User/globalStorage/project-pilot/data/projects.json`
 - **macOS**: `~/Library/Application Support/Code/User/globalStorage/project-pilot/data/projects.json`
 - **Linux**: `~/.config/Code/User/globalStorage/project-pilot/data/projects.json`
+
+> **💡 Note**: All project configurations (including SSH remote projects) are stored locally. This means you have a unified project list regardless of which remote servers you connect to.
 
 ### Format
 ```json
@@ -186,6 +188,8 @@ Configuration files are stored in VS Code's global storage:
 ```
 
 ## 🌐 SSH Remote Projects
+
+> **📍 Important**: Project Pilot runs locally on your machine. Even when managing SSH remote projects, all project configurations are stored locally. You don't need to install the extension on remote servers - just configure SSH access from your local machine.
 
 ### Supported Formats
 - **Standard SSH**: `user@hostname:/path/to/project`

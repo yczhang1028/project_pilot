@@ -248,7 +248,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('projectPilot.showConfigPath', async () => {
       const configPath = await store.getConfigPath();
       const choice = await vscode.window.showInformationMessage(
-        `Configuration file location: ${configPath}`,
+        `Local configuration file: ${configPath}\n\nNote: All project configurations (including SSH remotes) are stored locally on your machine.`,
         'Open File', 'Copy Path', 'Show in Explorer'
       );
       
@@ -456,13 +456,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   function openSshProject(item: ProjectItem) {
     try {
+      // SSH 项目通过本地存储的连接信息打开远程项目
+      // 项目配置始终保存在本地，不需要在远程服务器上安装扩展
       let uri: vscode.Uri;
       
       if (item.path.startsWith('vscode-remote://')) {
         // Already a vscode-remote URI
         uri = vscode.Uri.parse(item.path);
       } else if (item.path.includes('@') && item.path.includes(':')) {
-        // Format: user@hostname:/path
+        // Format: user@hostname:/path - 标准SSH格式
         const [userHost, remotePath] = item.path.split(':');
         const encodedHost = encodeURIComponent(userHost);
         uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedHost}${remotePath}`);
@@ -472,6 +474,7 @@ export async function activate(context: vscode.ExtensionContext) {
         uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedPath}`);
       }
       
+      // 使用 VSCode 的 Remote-SSH 功能打开远程项目
       vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to open SSH project "${item.name}": ${error}`);

@@ -41,3 +41,12 @@ Thumbs.db
 projects.json
 prompt.md
 Introduction.md
+project-pilot-config.json
+
+# Development scripts and config
+build-and-publish.ps1
+.env
+*.ps1
+
+# Build directory (keep only the output)
+builds/**

@@ -51,9 +51,13 @@ export class ConfigStore {
   }
 
   async init() {
+    // 确保配置存储在本地 - 即使连接到远程机器，项目配置也始终在本地管理
+    console.log('Project Pilot: Initializing local configuration storage...');
     const dir = vscode.Uri.joinPath(this.context.globalStorageUri, 'data');
     await vscode.workspace.fs.createDirectory(dir);
     this.fileUri = vscode.Uri.joinPath(dir, 'projects.json');
+    console.log('Project Pilot: Configuration will be stored at:', this.fileUri.fsPath);
+    
     try {
       const buf = await vscode.workspace.fs.readFile(this.fileUri);
       this._state = JSON.parse(Buffer.from(buf).toString('utf8')) as State;
