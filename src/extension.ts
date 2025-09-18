@@ -371,6 +371,11 @@ export async function activate(context: vscode.ExtensionContext) {
           label: '🔄 Replace Current Config',
           description: 'Replace current config with imported one (creates backup)',
           action: 'replace'
+        },
+        {
+          label: '📝 Edit JSON',
+          description: 'Edit current JSON configuration file',
+          action: 'editJson'
         }
       ], {
         placeHolder: 'Choose sync action'
@@ -418,6 +423,10 @@ export async function activate(context: vscode.ExtensionContext) {
               managerProvider.postState();
               vscode.window.showInformationMessage('Configuration replaced successfully');
             }
+            break;
+          
+          case 'editJson':
+            await vscode.commands.executeCommand('projectPilot.openConfigFile');
             break;
         }
       } catch (error) {

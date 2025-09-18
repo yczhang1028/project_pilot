@@ -2,6 +2,55 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [0.3.0] - 2025-09-18
+
+### 🎨 Major UI/UX Improvements
+- **New Mini View Mode**: Added ultra-compact "Mini" view mode with 100x100px fixed-size icons
+  - Icon + name layout with hover actions
+  - Flex-wrap layout for optimal space utilization
+  - Perfect alignment with fixed dimensions
+- **Improved Modal Experience**: Fixed Add Modal scrolling issues
+  - Added `max-h-[90vh] overflow-y-auto` for proper scrolling
+  - No longer requires collapsing outline to operate
+  - Added ESC key support to close modals
+- **Enhanced Search Experience**: Added clear button to search input
+  - Smart visibility (only shows when there's content)
+  - One-click search clearing
+
+### 🎯 UI Polish & Optimization
+- **Reduced Font Sizes**: Optimized typography for better space utilization
+  - Smaller headers, buttons, and input elements
+  - Tighter spacing throughout the interface
+- **Collapsible Controls**: Redesigned control area as expandable block
+  - Search and Add buttons always visible
+  - Filters and options in collapsible "Options" panel
+  - Better organization with visual separators
+- **Flex Layout Migration**: Converted Grid mode to use modern flex-wrap layout
+  - More responsive and adaptive to container width
+  - Eliminated fixed breakpoint dependencies for better flexibility
+
+### ⚙️ Settings Integration
+- **Unified Settings Menu**: Consolidated configuration options
+  - Settings button calls enhanced sync command
+  - Added "Edit JSON" option to sync QuickPick menu
+  - Streamlined access to all configuration features
+- **Improved Text Handling**: Better text truncation in Mini mode
+  - Fixed width containers with proper ellipsis
+  - Consistent alignment across all view modes
+
+### 🎨 Visual Design Updates
+- **New Activity Bar Icon**: Redesigned with three stacked folder outlines
+  - Clean line-art style without colors
+  - Better represents multi-project management concept
+- **Enhanced Button Styling**: Improved hover states and visual feedback
+  - Better color contrast and interaction cues
+  - More professional appearance
+
+### 🔧 Technical Improvements
+- **Code Cleanup**: Removed redundant states and improved component structure
+- **Better Event Handling**: Enhanced modal and menu interaction logic
+- **Performance**: Optimized rendering with better layout algorithms
+
 ## [0.2.0] - 2025-09-17
 
 ### 🎯 Major Architecture Improvement

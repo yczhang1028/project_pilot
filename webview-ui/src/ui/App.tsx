@@ -17,7 +17,7 @@ type ProjectItem = {
 };
 type UISettings = {
   compactMode?: boolean;
-  viewMode?: 'grid' | 'list';
+  viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;
 };
 type State = { 
@@ -55,7 +55,7 @@ const getVSCodeTheme = () => {
   };
 };
 
-type ViewMode = 'grid' | 'list';
+type ViewMode = 'grid' | 'list' | 'mini';
 type SortBy = 'name' | 'type' | 'recent';
 
 export default function App() {
@@ -71,6 +71,7 @@ export default function App() {
   const [compactMode, setCompactMode] = useState(false);
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
+  const [showControls, setShowControls] = useState(false);
 
   useEffect(() => {
     console.log('Project Pilot: Setting up message listener');
@@ -128,6 +129,8 @@ export default function App() {
 
     return () => observer.disconnect();
   }, []);
+
+
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -242,171 +245,246 @@ export default function App() {
           borderColor: theme.border 
         }}
       >
-        <h1 className="text-xl font-bold mb-4" style={{ color: theme.foreground }}>Project Pilot</h1>
+        <h1 className="text-lg font-bold mb-3" style={{ color: theme.foreground }}>Project Pilot</h1>
         
-        {/* Search and Filters */}
-        <div className="space-y-3">
-      <div className="flex gap-2 items-center">
-            <div className="relative flex-1">
-              <input 
-                className="w-full pl-8 pr-3 py-2 rounded-md border focus:ring-2 focus:border-transparent" 
-                style={{
-                  backgroundColor: theme.inputBackground,
-                  color: theme.inputForeground,
-                  borderColor: theme.inputBorder,
-                  '--tw-ring-color': theme.focusBorder
-                } as React.CSSProperties}
-                placeholder="Search by name, description, path, or tags..." 
-                value={q} 
-                onChange={e => setQ(e.target.value)} 
-              />
-              <svg className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </div>
-            <button 
-              className="px-3 py-2 rounded-md transition-colors"
-              style={{
-                backgroundColor: theme.buttonBackground,
-                color: theme.buttonForeground
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.opacity = '0.9';
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.opacity = '1';
-              }}
-              onClick={() => setShowAddForm(!showAddForm)}
-            >
-              + Add
-            </button>
-          </div>
-          
-          <div className="flex gap-2 items-center flex-wrap">
-            <select 
-              className="px-2 py-1 rounded border text-sm"
+        {/* Search Bar */}
+        <div className="flex gap-2 items-center mb-3">
+          <div className="relative flex-1">
+            <input 
+              className="w-full pl-8 pr-8 py-1.5 text-sm rounded-md border focus:ring-2 focus:border-transparent" 
               style={{
                 backgroundColor: theme.inputBackground,
                 color: theme.inputForeground,
-                borderColor: theme.inputBorder
-              }}
-              value={selectedTag} 
-              onChange={e => setSelectedTag(e.target.value)}
-            >
-              <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>All Tags</option>
-              {allTags.map(tag => (
-                <option key={tag} value={tag} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>{tag}</option>
-              ))}
-            </select>
-            
-            <select 
-              className="px-2 py-1 rounded border text-sm"
-              style={{
-                backgroundColor: theme.inputBackground,
-                color: theme.inputForeground,
-                borderColor: theme.inputBorder
-              }}
-              value={sortBy} 
-              onChange={e => setSortBy(e.target.value as SortBy)}
-            >
-              <option value="name" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Name</option>
-              <option value="type" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Type</option>
-              <option value="recent" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Recent</option>
-            </select>
-            
-            <select 
-              className="px-2 py-1 rounded border text-sm"
-              style={{
-                backgroundColor: theme.inputBackground,
-                color: theme.inputForeground,
-                borderColor: theme.inputBorder
-              }}
-              value={selectedGroup} 
-              onChange={e => {
-                const newGroup = e.target.value;
-                setSelectedGroup(newGroup);
-                updateUISettings({ selectedGroup: newGroup });
-              }}
-            >
-              <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>All Groups</option>
-              {allGroups.map(group => (
-                <option key={group} value={group} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>{group}</option>
-              ))}
-            </select>
-            
-            <div className="flex rounded border overflow-hidden text-xs" style={{ borderColor: theme.inputBorder }}>
-              <button 
-                className="px-2 py-1"
-                style={{
-                  backgroundColor: viewMode === 'grid' ? theme.listActiveSelectionBackground : theme.inputBackground,
-                  color: viewMode === 'grid' ? theme.buttonForeground : theme.inputForeground
-                }}
-                onClick={() => {
-                  setViewMode('grid');
-                  updateUISettings({ viewMode: 'grid' });
-                }}
+                borderColor: theme.inputBorder,
+                '--tw-ring-color': theme.focusBorder
+              } as React.CSSProperties}
+              placeholder="Search by name, description, path, or tags..." 
+              value={q} 
+              onChange={e => setQ(e.target.value)} 
+            />
+            <svg className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            {q && (
+              <button
+                className="absolute right-2.5 top-2.5 h-4 w-4 rounded-full flex items-center justify-center transition-colors hover:bg-gray-200"
+                style={{ color: theme.inputForeground, opacity: 0.6 }}
+                onClick={() => setQ('')}
+                title="Clear search"
+                onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
+                onMouseOut={(e) => e.currentTarget.style.opacity = '0.6'}
               >
-                Grid
+                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
-              <button 
-                className="px-2 py-1"
-                style={{
-                  backgroundColor: viewMode === 'list' ? theme.listActiveSelectionBackground : theme.inputBackground,
-                  color: viewMode === 'list' ? theme.buttonForeground : theme.inputForeground
-                }}
-                onClick={() => {
-                  setViewMode('list');
-                  updateUISettings({ viewMode: 'list' });
-                }}
-              >
-                List
-              </button>
-            </div>
-            
-            <button 
-              className="px-2 py-1 text-xs rounded border"
-              style={{
-                backgroundColor: showByGroup ? theme.listActiveSelectionBackground : theme.inputBackground,
-                color: showByGroup ? theme.buttonForeground : theme.inputForeground,
-                borderColor: theme.inputBorder
-              }}
-              onClick={() => setShowByGroup(!showByGroup)}
-              title="Toggle group view"
-            >
-              {showByGroup ? '📁' : '📋'}
-            </button>
-            
-            <button 
-              className="px-2 py-1 text-xs rounded border"
-              style={{
-                backgroundColor: showFavoritesOnly ? theme.listActiveSelectionBackground : theme.inputBackground,
-                color: showFavoritesOnly ? theme.buttonForeground : theme.inputForeground,
-                borderColor: theme.inputBorder
-              }}
-              onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
-              title="Show favorites only"
-            >
-              {showFavoritesOnly ? '⭐' : '☆'}
-            </button>
-            
-            <button 
-              className="px-2 py-1 text-xs rounded border"
-              style={{
-                backgroundColor: compactMode ? theme.listActiveSelectionBackground : theme.inputBackground,
-                color: compactMode ? theme.buttonForeground : theme.inputForeground,
-                borderColor: theme.inputBorder
-              }}
-              onClick={() => {
-                const newCompactMode = !compactMode;
-                setCompactMode(newCompactMode);
-                updateUISettings({ compactMode: newCompactMode });
-              }}
-              title="Toggle compact mode"
-            >
-              {compactMode ? '📦' : '📏'}
-            </button>
+            )}
           </div>
+          <button 
+            className="px-3 py-1.5 text-sm rounded-md transition-colors"
+            style={{
+              backgroundColor: theme.buttonBackground,
+              color: theme.buttonForeground
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.opacity = '0.9';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.opacity = '1';
+            }}
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            + Add
+          </button>
+          <button 
+            className="px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1"
+            style={{
+              backgroundColor: theme.inputBackground,
+              color: theme.inputForeground,
+              borderColor: theme.inputBorder
+            }}
+            onClick={() => setShowControls(!showControls)}
+            title="Show filters and view options"
+          >
+            <span>Options</span>
+            <svg className={`w-4 h-4 transition-transform ${showControls ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
         </div>
+
+        {/* Collapsible Controls */}
+        {showControls && (
+          <div 
+            className="mb-3 p-3 rounded-lg border"
+            style={{ 
+              backgroundColor: theme.secondaryBackground,
+              borderColor: theme.border 
+            }}
+          >
+            <div className="space-y-3">
+              {/* Filters Row */}
+              <div className="flex gap-2 items-center flex-wrap">
+                <select 
+                  className="px-2 py-1 rounded border text-sm"
+                  style={{
+                    backgroundColor: theme.inputBackground,
+                    color: theme.inputForeground,
+                    borderColor: theme.inputBorder
+                  }}
+                  value={selectedTag} 
+                  onChange={e => setSelectedTag(e.target.value)}
+                >
+                  <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>All Tags</option>
+                  {allTags.map(tag => (
+                    <option key={tag} value={tag} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>{tag}</option>
+                  ))}
+                </select>
+                
+                <select 
+                  className="px-2 py-1 rounded border text-sm"
+                  style={{
+                    backgroundColor: theme.inputBackground,
+                    color: theme.inputForeground,
+                    borderColor: theme.inputBorder
+                  }}
+                  value={sortBy} 
+                  onChange={e => setSortBy(e.target.value as SortBy)}
+                >
+                  <option value="name" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Name</option>
+                  <option value="type" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Type</option>
+                  <option value="recent" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Recent</option>
+                </select>
+                
+                <select 
+                  className="px-2 py-1 rounded border text-sm"
+                  style={{
+                    backgroundColor: theme.inputBackground,
+                    color: theme.inputForeground,
+                    borderColor: theme.inputBorder
+                  }}
+                  value={selectedGroup} 
+                  onChange={e => {
+                    const newGroup = e.target.value;
+                    setSelectedGroup(newGroup);
+                    updateUISettings({ selectedGroup: newGroup });
+                  }}
+                >
+                  <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>All Groups</option>
+                  {allGroups.map(group => (
+                    <option key={group} value={group} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>{group}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Divider */}
+              <div className="border-t" style={{ borderColor: theme.border }}></div>
+
+              {/* View Options and Configure */}
+              <div className="flex gap-2 items-center flex-wrap justify-between">
+                <div className="flex gap-2 items-center flex-wrap">
+                  <div className="flex rounded border overflow-hidden text-xs" style={{ borderColor: theme.inputBorder }}>
+                    <button 
+                      className="px-2 py-1"
+                      style={{
+                        backgroundColor: viewMode === 'grid' ? theme.listActiveSelectionBackground : theme.inputBackground,
+                        color: viewMode === 'grid' ? theme.buttonForeground : theme.inputForeground
+                      }}
+                      onClick={() => {
+                        setViewMode('grid');
+                        updateUISettings({ viewMode: 'grid' });
+                      }}
+                    >
+                      Grid
+                    </button>
+                    <button 
+                      className="px-2 py-1"
+                      style={{
+                        backgroundColor: viewMode === 'list' ? theme.listActiveSelectionBackground : theme.inputBackground,
+                        color: viewMode === 'list' ? theme.buttonForeground : theme.inputForeground
+                      }}
+                      onClick={() => {
+                        setViewMode('list');
+                        updateUISettings({ viewMode: 'list' });
+                      }}
+                    >
+                      List
+                    </button>
+                    <button 
+                      className="px-2 py-1"
+                      style={{
+                        backgroundColor: viewMode === 'mini' ? theme.listActiveSelectionBackground : theme.inputBackground,
+                        color: viewMode === 'mini' ? theme.buttonForeground : theme.inputForeground
+                      }}
+                      onClick={() => {
+                        setViewMode('mini');
+                        updateUISettings({ viewMode: 'mini' });
+                      }}
+                    >
+                      Mini
+                    </button>
+                  </div>
+                  
+                  <button 
+                    className="px-2 py-1 text-xs rounded border"
+                    style={{
+                      backgroundColor: showByGroup ? theme.listActiveSelectionBackground : theme.inputBackground,
+                      color: showByGroup ? theme.buttonForeground : theme.inputForeground,
+                      borderColor: theme.inputBorder
+                    }}
+                    onClick={() => setShowByGroup(!showByGroup)}
+                    title="Group by category"
+                  >
+                    {showByGroup ? '📁 Grouped' : '📋 Flat'}
+                  </button>
+                  
+                  <button 
+                    className="px-2 py-1 text-xs rounded border"
+                    style={{
+                      backgroundColor: showFavoritesOnly ? theme.listActiveSelectionBackground : theme.inputBackground,
+                      color: showFavoritesOnly ? theme.buttonForeground : theme.inputForeground,
+                      borderColor: theme.inputBorder
+                    }}
+                    onClick={() => setShowFavoritesOnly(!showFavoritesOnly)}
+                    title="Show favorites only"
+                  >
+                    {showFavoritesOnly ? '⭐ Favorites' : '☆ All'}
+                  </button>
+                  
+                  <button 
+                    className="px-2 py-1 text-xs rounded border"
+                    style={{
+                      backgroundColor: compactMode ? theme.listActiveSelectionBackground : theme.inputBackground,
+                      color: compactMode ? theme.buttonForeground : theme.inputForeground,
+                      borderColor: theme.inputBorder
+                    }}
+                    onClick={() => {
+                      const newCompactMode = !compactMode;
+                      setCompactMode(newCompactMode);
+                      updateUISettings({ compactMode: newCompactMode });
+                    }}
+                    title="Toggle compact layout"
+                  >
+                    {compactMode ? '📦 Compact' : '📏 Normal'}
+                  </button>
+                </div>
+
+                {/* Settings Button */}
+                <button 
+                  className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                  style={{
+                    backgroundColor: theme.buttonBackground,
+                    color: theme.buttonForeground
+                  }}
+                  onClick={() => vscode.postMessage({ type: 'sync' })}
+                  title="Configuration options"
+                >
+                  ⚙️ Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Add Form */}
         {showAddForm && (
@@ -461,48 +539,18 @@ export default function App() {
             </div>
           </div>
         )}
-        
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2 mt-4">
-          <button 
-            className="px-3 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 transition-colors text-sm"
-            onClick={() => vscode.postMessage({ type: 'import' })}
-          >
-            📥 Import Config
-          </button>
-          <button 
-            className="px-3 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition-colors text-sm"
-            onClick={() => vscode.postMessage({ type: 'export' })}
-          >
-            📤 Export Config
-          </button>
-          <button 
-            className="px-3 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 transition-colors text-sm"
-            onClick={() => vscode.postMessage({ type: 'openConfig' })}
-            title="Open the raw JSON configuration file for editing"
-          >
-            📝 Edit JSON
-          </button>
-          <button 
-            className="px-3 py-2 rounded-md bg-cyan-600 text-white hover:bg-cyan-700 transition-colors text-sm"
-            onClick={() => vscode.postMessage({ type: 'sync' })}
-            title="Sync configuration across machines"
-          >
-            🔄 Sync
-          </button>
-        </div>
       </div>
       
       {/* Projects Display */}
       <div 
-        className="rounded-lg shadow-sm p-4"
+        className="rounded-lg shadow-sm p-3"
         style={{ 
           backgroundColor: theme.primaryBackground,
           borderColor: theme.border 
         }}
       >
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="font-medium" style={{ color: theme.foreground }}>
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-sm font-medium" style={{ color: theme.foreground }}>
             {showFavoritesOnly ? `Favorites (${filtered.length})` : `Projects (${filtered.length})`}
             {!showFavoritesOnly && state.projects.filter(p => p.isFavorite).length > 0 && (
               <span className="ml-2 text-xs" style={{ color: theme.foreground, opacity: 0.6 }}>
@@ -565,6 +613,8 @@ export default function App() {
                   ? compactMode 
                     ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2" 
                     : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+                  : viewMode === 'mini'
+                    ? "flex flex-wrap gap-2.5"
                   : compactMode 
                     ? "space-y-1" 
                     : "space-y-2"
@@ -595,6 +645,8 @@ export default function App() {
             ? compactMode 
               ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2" 
               : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+            : viewMode === 'mini'
+              ? "flex flex-wrap gap-2.5"
             : compactMode 
               ? "space-y-1" 
               : "space-y-2"
@@ -672,6 +724,97 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
     workspace: 'bg-green-100 text-green-700',
     ssh: 'bg-yellow-100 text-yellow-700'
   };
+
+  if (viewMode === 'mini') {
+    return (
+      <div 
+        className="group relative text-center flex flex-col flex-shrink-0"
+        style={{ width: '100px', height: '100px' }}
+        title={`${p.description ? p.description + '\n' : ''}Path: ${p.path}${p.tags?.length ? '\nTags: ' + p.tags.join(', ') : ''}`}
+      >
+        {/* Icon */}
+        <div 
+          className="w-10 h-10 mx-auto mt-2 rounded border-2 flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-105"
+          style={{ 
+            borderColor: p.color,
+            backgroundColor: theme.secondaryBackground,
+            color: p.color
+          }}
+          onClick={onOpen}
+        >
+          {p.icon ? (
+            <img src={p.icon} className="w-8 h-8 object-cover rounded-sm" alt="" />
+          ) : (
+            <span className="text-base">{typeIcons[p.type]}</span>
+          )}
+        </div>
+        
+        {/* Name */}
+        <div className="px-1 mt-1">
+          <div 
+            className="text-xs font-medium cursor-pointer text-center w-full truncate"
+            style={{ color: theme.foreground }}
+            onClick={onOpen}
+          >
+            {p.name}
+          </div>
+        </div>
+        
+        {/* Hover actions - positioned at bottom */}
+        <div className="flex-1 flex items-end justify-center">
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-center gap-1 mb-0.5">
+          <button
+            className="w-4 h-4 rounded-full flex items-center justify-center transition-colors"
+            style={{ 
+              backgroundColor: theme.primaryBackground,
+              color: p.isFavorite ? '#eab308' : theme.foreground,
+              border: `1px solid ${theme.border}`
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(p.id!);
+            }}
+            title={p.isFavorite ? "Remove from favorites" : "Add to favorites"}
+          >
+            <svg className="w-2.5 h-2.5" fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+            </svg>
+          </button>
+          <button
+            className="w-4 h-4 rounded-full flex items-center justify-center transition-colors"
+            style={{ 
+              backgroundColor: theme.primaryBackground,
+              color: theme.foreground,
+              border: `1px solid ${theme.border}`
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsEditing(true);
+            }}
+            title="Edit"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
+          </div>
+        </div>
+        
+        {isEditing && (
+          <EditModal 
+            project={p}
+            theme={theme}
+            allGroups={allGroups ? allGroups : []}
+            onSave={(updatedProject) => {
+              onChange(updatedProject);
+              setIsEditing(false);
+            }}
+            onCancel={() => setIsEditing(false)}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (viewMode === 'list') {
     return (
@@ -1056,6 +1199,20 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     };
   }, [editedProject]);
 
+  // 监听ESC键关闭Modal
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onCancel();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onCancel]);
+
   // 预设的漂亮颜色
   const presetColors = [
     '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -1144,7 +1301,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
 
   return (
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
       onMouseDown={(e) => {
         // 只有直接点击背景时才关闭，不包括拖拽事件
         if (e.target === e.currentTarget && !isDragging) {
@@ -1155,7 +1312,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       onMouseUp={() => setIsDragging(false)}
     >
       <div 
-        className="rounded-lg p-6 w-full max-w-md mx-4 border"
+        className="rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto border"
         style={{ 
           backgroundColor: theme.primaryBackground,
           borderColor: theme.border 
@@ -1163,7 +1320,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
         onClick={e => e.stopPropagation()}
         onMouseDown={e => e.stopPropagation()}
       >
-        <h3 className="text-lg font-medium mb-4" style={{ color: theme.foreground }}>
+        <div className="p-6">
+        <h3 className="text-lg font-medium mb-4 text-left" style={{ color: theme.foreground }}>
           {isNewProject ? `Add ${project.type} Project` : 'Edit Project'}
         </h3>
         
@@ -1553,6 +1711,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           >
             Cancel
           </button>
+        </div>
         </div>
       </div>
     </div>
