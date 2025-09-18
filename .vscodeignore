@@ -21,7 +21,7 @@ src/test/**
 **/*.spec.ts
 
 # Documentation and media (keep only essential)
-media/demo/**
+# media/demo/** - Keep demo images for README
 .cursor/**
 
 # Git and project files

@@ -1,7 +1,6 @@
 # Project Pilot
 
-A modern, powerful project manager for Visual Studio Code that supports local folders, workspace files, and SSH remote projects with a beautiful React-based interface.![1758179919774](image/README/1758179919774.png)![1758179920637](image/README/1758179920637.png)![1758179925346](image/README/1758179925346.png)
-
+A modern, powerful project manager for Visual Studio Code that supports local folders, workspace files, and SSH remote projects with a beautiful React-based interface.
 ## 📦 Installation
 
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/yczhang1028.project-pilot?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=yczhang1028.project-pilot)
@@ -10,7 +9,7 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 **Install from VS Code Marketplace:**
 - [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=yczhang1028.project-pilot)
 
-**Install from Open VSX Registry (for Cursor and other editors)![1758179911651](image/README/1758179911651.png)![1758179914213](image/README/1758179914213.png):**
+**Install from Open VSX Registry (for Cursor and other editors)**
 - [Open VSX Registry](https://open-vsx.org/extension/yczhang1028/project-pilot)
 
 ![Project Pilot Main Interface](media/demo/demo_manager.png)
@@ -23,7 +22,7 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 - **Local Project Management**: Add and manage local folder projects
 - **Workspace File Support**: Import and manage `.code-workspace` files
 - **SSH Remote Projects**: Connect to and manage remote projects via SSH
-- **Modern React UI**: Beautiful, responsive interface with grid and list views
+- **Modern React UI**: Beautiful, responsive interface with Grid, List, and Mini views
 - **Smart Search**: Search by name, description, path, or tags
 - **Project Cards**: Customizable project cards with colors, icons, and tags
 
@@ -36,12 +35,15 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 - **Project Descriptions**: Add detailed descriptions with hover tooltips
 
 ### 🎨 User Experience
-- **Dual View Modes**: Switch between grid and list views in Manager
-- **Tree/List Toggle**: Outline view supports both flat and grouped display
-- **Smart Filtering**: Filter by tags, project types, and search terms
+- **Triple View Modes**: Switch between Grid, List, and ultra-compact Mini views in Manager
+- **Mini View Mode**: Ultra-compact 100x100px icon grid with hover actions for maximum density
+- **Collapsible Controls**: Clean interface with expandable Options panel for advanced settings
+- **Enhanced Search**: Search with clear button and real-time filtering
+- **Modal Improvements**: Scrollable modals with ESC key support and better UX
+- **Smart Filtering**: Filter by tags, project types, and search terms with improved UI
 - **Clickable Icons**: Direct project opening from list view icons
 - **Keyboard Shortcuts**: Quick access to common actions
-- **Hover Tooltips**: Rich information display on hover
+- **Hover Tooltips**: Rich information display on hover with detailed project info
 - **Theme Integration**: Full VSCode theme support for seamless experience
 
 ## 🚀 Quick Start
@@ -56,7 +58,7 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 1. **Add your first project**: Click the `+ Add` button or use `Ctrl+P Ctrl+L`
 2. **Customize your project**: Add descriptions, tags, and custom colors
 3. **Organize with groups**: Create groups like "Work", "Personal", "Learning"
-4. **Switch views**: Toggle between grid/list in Manager and tree/flat in Outline
+4. **Switch views**: Toggle between Grid/List/Mini in Manager and tree/flat in Outline
 
 ### Adding Projects
 
@@ -96,8 +98,15 @@ Each project is displayed as a customizable card with:
 - **Tags**: Organize with custom tags
 
 #### View Modes
-- **Grid View**: Card-based layout for visual browsing
-- **List View**: Compact list with detailed information
+
+The Manager supports three distinct view modes:
+
+- **Grid View**: Card-based layout with project thumbnails and full details
+- **List View**: Compact horizontal layout with quick access to all information  
+- **Mini View**: Ultra-compact icon grid (100x100px) perfect for managing many projects
+  - Fixed-size icons with project names
+  - Hover to reveal action buttons
+  - Maximum density for large project collections
 - **Toggle**: Switch views using the toolbar buttons
 
 ![Outline View](media/demo/demo_outline.png)
@@ -131,7 +140,7 @@ Project Pilot provides multiple ways to view and organize your projects:
 
 Access settings via `File > Preferences > Settings > Project Pilot`:
 
-- **Default View**: Set default view mode (grid/list)
+- **Default View**: Set default view mode (grid/list/mini)
 - **Auto Backup**: Enable automatic configuration backups
 - **Max Backups**: Number of backup files to retain (1-20)
 - **Show Type Icons**: Display type icons in tree view

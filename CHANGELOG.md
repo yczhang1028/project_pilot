@@ -2,6 +2,17 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [0.3.1] - 2025-09-18
+
+### 📖 Documentation Updates
+- **README Enhancement**: Updated documentation to reflect all new features in v0.3.0
+  - Added comprehensive description of new Mini view mode
+  - Updated feature list to include triple view modes (Grid/List/Mini)
+  - Enhanced user experience section with new UI improvements
+  - Updated configuration options to include Mini mode
+- **Demo Images**: Fixed .vscodeignore to include demo images for proper README display
+- **Feature Documentation**: Added detailed descriptions of collapsible controls and modal improvements
+
 ## [0.3.0] - 2025-09-18
 
 ### 🎨 Major UI/UX Improvements
