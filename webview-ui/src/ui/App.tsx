@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-type ProjectType = 'local' | 'workspace' | 'ssh';
+type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
 type ProjectItem = { 
   id?: string; 
   name: string; 
@@ -56,7 +56,7 @@ const getVSCodeTheme = () => {
 };
 
 type ViewMode = 'grid' | 'list' | 'mini';
-type SortBy = 'name' | 'type' | 'recent';
+type SortBy = 'name' | 'type' | 'recent' | 'frequency';
 
 export default function App() {
   const [state, setState] = useState<State>({ projects: [] });
@@ -68,6 +68,7 @@ export default function App() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showByGroup, setShowByGroup] = useState(true);
+  const [groupMode, setGroupMode] = useState<'custom' | 'target'>('custom'); // 分组模式：自定义分组 或 按Target分组
   const [compactMode, setCompactMode] = useState(false);
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
@@ -100,6 +101,12 @@ export default function App() {
       } else if (e.data?.type === 'pathSelected') {
         // 处理路径选择结果
         window.dispatchEvent(new CustomEvent('pathSelected', { detail: e.data.payload }));
+      } else if (e.data?.type === 'sshBrowseResult') {
+        // 处理 SSH 浏览结果
+        window.dispatchEvent(new CustomEvent('sshBrowseResult', { detail: e.data.payload }));
+      } else if (e.data?.type === 'remoteStatus') {
+        // 处理远程状态
+        window.dispatchEvent(new CustomEvent('remoteStatus', { detail: e.data.payload }));
       }
     };
     window.addEventListener('message', listener);
@@ -175,7 +182,14 @@ export default function App() {
       switch (sortBy) {
         case 'name': return a.name.localeCompare(b.name);
         case 'type': return a.type.localeCompare(b.type);
-        case 'recent': return (b.id || '').localeCompare(a.id || '');
+        case 'recent': 
+          // 按最后访问时间排序（最近的在前）
+          const aTime = a.lastAccessed ? new Date(a.lastAccessed).getTime() : 0;
+          const bTime = b.lastAccessed ? new Date(b.lastAccessed).getTime() : 0;
+          return bTime - aTime;
+        case 'frequency':
+          // 按使用频次排序（高频在前）
+          return (b.clickCount || 0) - (a.clickCount || 0);
         default: return 0;
       }
     });
@@ -183,19 +197,83 @@ export default function App() {
     return result;
   }, [state.projects, q, showFavoritesOnly, selectedTag, selectedGroup, sortBy]);
 
+  // 从 SSH 路径中提取 target 信息
+  const getProjectTarget = (project: ProjectItem): string => {
+    if (project.type === 'local' || project.type === 'workspace') {
+      return '💻 Local';
+    }
+    
+    // SSH 或 SSH-Workspace
+    const path = project.path;
+    try {
+      if (path.startsWith('vscode-remote://ssh-remote+')) {
+        // 从 vscode-remote URI 中提取
+        const encoded = path.replace('vscode-remote://ssh-remote+', '').split('/')[0];
+        const decoded = decodeURIComponent(encoded);
+        const hostname = decoded.split('@')[1] || decoded;
+        return `🖥️ ${hostname}`;
+      } else if (path.includes('@') && path.includes(':')) {
+        // 从 user@hostname:/path 格式中提取
+        const userHost = path.split(':')[0];
+        const hostname = userHost.split('@')[1] || userHost;
+        return `🖥️ ${hostname}`;
+      }
+    } catch {
+      // 忽略解析错误
+    }
+    return '🌐 Remote';
+  };
+
   const groupedProjects = useMemo(() => {
     const groups: { [key: string]: ProjectItem[] } = {};
     
     filtered.forEach(project => {
-      const groupName = project.group || 'Ungrouped';
+      let groupName: string;
+      
+      if (groupMode === 'target') {
+        // 按 Target 分组
+        groupName = getProjectTarget(project);
+      } else {
+        // 按自定义分组
+        groupName = project.group || 'Ungrouped';
+      }
+      
       if (!groups[groupName]) {
         groups[groupName] = [];
       }
       groups[groupName].push(project);
     });
     
-    return groups;
-  }, [filtered]);
+    // 判断是否是 IP 地址
+    const isIpAddress = (str: string): boolean => {
+      // 移除前缀 emoji
+      const cleaned = str.replace(/^[💻🖥️🌐]\s*/, '');
+      // 检查是否是 IP 格式 (xxx.xxx.xxx.xxx)
+      return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(cleaned);
+    };
+
+    // 排序分组：Local 优先，然后 hostname（非IP）优先，最后是 IP 地址
+    const sortedGroups: { [key: string]: ProjectItem[] } = {};
+    const keys = Object.keys(groups).sort((a, b) => {
+      // Local 最优先
+      if (a.includes('Local')) return -1;
+      if (b.includes('Local')) return 1;
+      
+      // 非 IP（hostname）优先于 IP
+      const aIsIp = isIpAddress(a);
+      const bIsIp = isIpAddress(b);
+      if (!aIsIp && bIsIp) return -1;  // hostname 排前面
+      if (aIsIp && !bIsIp) return 1;   // IP 排后面
+      
+      // 同类型按字母排序
+      return a.localeCompare(b);
+    });
+    keys.forEach(key => {
+      sortedGroups[key] = groups[key];
+    });
+    
+    return sortedGroups;
+  }, [filtered, groupMode]);
 
   const addNewProject = (type: ProjectType) => {
     setNewProjectType(type);
@@ -203,11 +281,20 @@ export default function App() {
   };
 
   const createNewProject = (projectData: ProjectItem) => {
+    const getDefaultColor = (type: ProjectType | null) => {
+      switch (type) {
+        case 'local': return '#3b82f6';
+        case 'workspace': return '#10b981';
+        case 'ssh': return '#f59e0b';
+        case 'ssh-workspace': return '#8b5cf6';
+        default: return '#3b82f6';
+      }
+    };
     const newProject: ProjectItem = {
       ...projectData,
       id: Math.random().toString(36).slice(2, 10),
       type: newProjectType || 'local',
-      color: projectData.color || (newProjectType === 'local' ? '#3b82f6' : newProjectType === 'workspace' ? '#10b981' : '#f59e0b'),
+      color: projectData.color || getDefaultColor(newProjectType),
       group: projectData.group || selectedGroup || undefined
     };
     vscode.postMessage({ type: 'addOrUpdate', payload: newProject });
@@ -354,6 +441,7 @@ export default function App() {
                   <option value="name" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Name</option>
                   <option value="type" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Type</option>
                   <option value="recent" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Recent</option>
+                  <option value="frequency" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Sort by Usage</option>
                 </select>
                 
                 <select 
@@ -433,10 +521,25 @@ export default function App() {
                       borderColor: theme.inputBorder
                     }}
                     onClick={() => setShowByGroup(!showByGroup)}
-                    title="Group by category"
+                    title="Toggle grouping"
                   >
                     {showByGroup ? '📁 Grouped' : '📋 Flat'}
                   </button>
+                  
+                  {showByGroup && (
+                    <button 
+                      className="px-2 py-1 text-xs rounded border"
+                      style={{
+                        backgroundColor: groupMode === 'target' ? theme.listActiveSelectionBackground : theme.inputBackground,
+                        color: groupMode === 'target' ? theme.buttonForeground : theme.inputForeground,
+                        borderColor: theme.inputBorder
+                      }}
+                      onClick={() => setGroupMode(groupMode === 'custom' ? 'target' : 'custom')}
+                      title="Toggle group mode: Custom groups or by Target (Local/SSH hosts)"
+                    >
+                      {groupMode === 'target' ? '🎯 By Target' : '📂 By Group'}
+                    </button>
+                  )}
                   
                   <button 
                     className="px-2 py-1 text-xs rounded border"
@@ -469,18 +572,34 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Settings Button */}
-                <button 
-                  className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
-                  style={{
-                    backgroundColor: theme.buttonBackground,
-                    color: theme.buttonForeground
-                  }}
-                  onClick={() => vscode.postMessage({ type: 'sync' })}
-                  title="Configuration options"
-                >
-                  ⚙️ Settings
-                </button>
+                {/* Refresh & Settings Buttons */}
+                <div className="flex gap-2 items-center">
+                  <button 
+                    className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                    style={{
+                      backgroundColor: theme.inputBackground,
+                      color: theme.inputForeground,
+                      borderColor: theme.inputBorder,
+                      border: '1px solid'
+                    }}
+                    onClick={() => vscode.postMessage({ type: 'refreshUI' })}
+                    title="Reload configuration and refresh UI"
+                  >
+                    🔄 Refresh
+                  </button>
+                  
+                  <button 
+                    className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                    style={{
+                      backgroundColor: theme.buttonBackground,
+                      color: theme.buttonForeground
+                    }}
+                    onClick={() => vscode.postMessage({ type: 'sync' })}
+                    title="Configuration options"
+                  >
+                    ⚙️ Settings
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -508,7 +627,7 @@ export default function App() {
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
                 onClick={() => addNewProject('local')}
               >
-                📁 Local Folder
+                📂 Local Folder
               </button>
               <button 
                 className="px-3 py-2 rounded border transition-colors"
@@ -521,7 +640,7 @@ export default function App() {
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
                 onClick={() => addNewProject('workspace')}
               >
-                🗂️ Workspace File
+                📦 Workspace File
               </button>
               <button 
                 className="px-3 py-2 rounded border transition-colors"
@@ -534,7 +653,20 @@ export default function App() {
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
                 onClick={() => addNewProject('ssh')}
               >
-                🌐 SSH Remote
+                🖥️ SSH Remote
+              </button>
+              <button 
+                className="px-3 py-2 rounded border transition-colors"
+                style={{
+                  backgroundColor: theme.inputBackground,
+                  color: '#8b5cf6',
+                  borderColor: '#8b5cf6'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f5f3ff'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
+                onClick={() => addNewProject('ssh-workspace')}
+              >
+                📡 SSH Workspace
               </button>
             </div>
           </div>
@@ -611,8 +743,8 @@ export default function App() {
       </div>
                 <div className={viewMode === 'grid' 
                   ? compactMode 
-                    ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2" 
-                    : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+                    ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2 auto-rows-fr" 
+                    : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-fr"
                   : viewMode === 'mini'
                     ? "flex flex-wrap gap-2.5"
                   : compactMode 
@@ -643,8 +775,8 @@ export default function App() {
         ) : (
           <div className={viewMode === 'grid' 
             ? compactMode 
-              ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2" 
-              : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+              ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2 auto-rows-fr" 
+              : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-fr"
             : viewMode === 'mini'
               ? "flex flex-wrap gap-2.5"
             : compactMode 
@@ -677,14 +809,24 @@ export default function App() {
         <EditModal 
           project={{
             id: '',
-            name: `New ${newProjectType.charAt(0).toUpperCase() + newProjectType.slice(1)} Project`,
-            path: newProjectType === 'ssh' ? 'user@hostname:/path/to/project' : '',
+            name: newProjectType === 'ssh-workspace' 
+              ? 'New SSH Workspace'
+              : `New ${newProjectType.charAt(0).toUpperCase() + newProjectType.slice(1)} Project`,
+            path: newProjectType === 'ssh' 
+              ? 'user@hostname:/path/to/project' 
+              : newProjectType === 'ssh-workspace'
+                ? 'user@hostname:/path/to/workspace.code-workspace'
+                : '',
             description: newProjectType === 'local' ? 'Local project folder' : 
                         newProjectType === 'workspace' ? 'VSCode workspace configuration' : 
+                        newProjectType === 'ssh-workspace' ? 'Remote workspace file via SSH' :
                         'Remote project via SSH',
             type: newProjectType,
-            color: newProjectType === 'local' ? '#3b82f6' : newProjectType === 'workspace' ? '#10b981' : '#f59e0b',
-            tags: newProjectType === 'ssh' ? ['ssh', 'remote'] : [],
+            color: newProjectType === 'local' ? '#3b82f6' : 
+                   newProjectType === 'workspace' ? '#10b981' : 
+                   newProjectType === 'ssh-workspace' ? '#8b5cf6' :
+                   '#f59e0b',
+            tags: (newProjectType === 'ssh' || newProjectType === 'ssh-workspace') ? ['ssh', 'remote'] : [],
             group: selectedGroup || undefined,
             icon: ''
           }}
@@ -713,16 +855,18 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   const [isEditing, setIsEditing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const typeIcons = {
-    local: '📁',
-    workspace: '🗂️',
-    ssh: '🌐'
+  const typeIcons: Record<string, string> = {
+    local: '📂',
+    workspace: '📦',
+    ssh: '🖥️',
+    'ssh-workspace': '📡'
   };
 
-  const typeColors = {
+  const typeColors: Record<string, string> = {
     local: 'bg-blue-100 text-blue-700',
     workspace: 'bg-green-100 text-green-700',
-    ssh: 'bg-yellow-100 text-yellow-700'
+    ssh: 'bg-yellow-100 text-yellow-700',
+    'ssh-workspace': 'bg-purple-100 text-purple-700'
   };
 
   if (viewMode === 'mini') {
@@ -752,7 +896,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         {/* Name */}
         <div className="px-1 mt-1">
           <div 
-            className="text-xs font-medium cursor-pointer text-center w-full truncate"
+            className="text-xs font-bold cursor-pointer text-center w-full truncate"
             style={{ color: theme.foreground }}
             onClick={onOpen}
           >
@@ -851,7 +995,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
               className="w-3 h-3 rounded-full flex-shrink-0"
               style={{ backgroundColor: p.color }}
             ></div>
-            <h3 className={`${compactMode ? "text-sm font-medium" : "font-medium"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
+            <h3 className={`${compactMode ? "text-sm font-semibold" : "font-bold"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
               {p.name}
             </h3>
             <span className={`${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium ${typeColors[p.type]}`}>
@@ -938,14 +1082,14 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   // Grid view
   return (
     <div 
-      className="rounded-lg border-2 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group"
+      className="rounded-lg border-2 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col h-full"
       style={{ 
         backgroundColor: theme.secondaryBackground,
         borderColor: p.color
       }}
     >
       <div 
-        className={`${compactMode ? 'h-20' : 'h-32'} flex items-center justify-center relative cursor-pointer`}
+        className={`${compactMode ? 'h-20' : 'h-32'} flex items-center justify-center relative cursor-pointer flex-shrink-0`}
         style={{ 
           backgroundColor: p.icon ? 'transparent' : theme.primaryBackground,
           backgroundImage: p.icon ? `url(${p.icon})` : 'none',
@@ -984,7 +1128,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         </div>
       </div>
       
-      <div className={compactMode ? "p-2" : "p-4"}>
+      <div className={`${compactMode ? "p-2" : "p-4"} flex flex-col flex-1`}>
         <div className={`flex items-start justify-between ${compactMode ? "mb-1" : "mb-2"}`}>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -992,7 +1136,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: p.color }}
               ></div>
-              <h3 className={`${compactMode ? "text-sm" : "font-medium"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
+              <h3 className={`${compactMode ? "text-sm font-semibold" : "font-bold"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
                 {p.name}
               </h3>
             </div>
@@ -1003,27 +1147,27 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             )}
             <p className={`${compactMode ? "text-xs" : "text-xs"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
           </div>
-          <span className={`ml-2 ${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium ${typeColors[p.type]}`}>
+          <span className={`ml-2 ${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium flex-shrink-0 ${typeColors[p.type]}`}>
             {p.type}
           </span>
         </div>
         
-        {p.tags && p.tags.length > 0 && (
-          <div className={`flex flex-wrap gap-1 ${compactMode ? "mb-1" : "mb-3"}`}>
-            {p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
+        {/* Tags 区域 - 固定高度保持对齐 */}
+        <div className={`flex flex-wrap gap-1 ${compactMode ? "mb-1 min-h-[20px]" : "mb-3 min-h-[28px]"}`}>
+            {p.tags && p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
               <span key={tag} className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
                 {tag}
               </span>
             ))}
-            {p.tags.length > (compactMode ? 2 : 3) && (
+            {p.tags && p.tags.length > (compactMode ? 2 : 3) && (
               <span className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
                 +{p.tags.length - (compactMode ? 2 : 3)}
               </span>
             )}
           </div>
-        )}
         
-        <div className="flex items-center justify-between">
+        {/* 按钮区域 - 始终在底部 */}
+        <div className="flex items-center justify-between mt-auto">
           <button
             className={`flex-1 ${compactMode ? "py-1 px-2 text-xs" : "py-2 px-3 text-sm"} rounded-lg transition-colors font-medium`}
             style={{
@@ -1164,9 +1308,17 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   const [isCreatingNewGroup, setIsCreatingNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [remoteStatus, setRemoteStatus] = useState<{ isRemote: boolean; sshHost?: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // 监听连接测试结果
+  // 检查远程状态
+  useEffect(() => {
+    if (editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') {
+      vscode.postMessage({ type: 'checkRemoteStatus' });
+    }
+  }, [editedProject.type]);
+
+  // 监听连接测试结果和远程状态
   useEffect(() => {
     const handleTestResult = (event: any) => {
       const result = event.detail;
@@ -1180,24 +1332,57 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     };
 
     const handlePathSelected = (event: any) => {
-      const { path, inputType } = event.detail;
+      const { path, inputType, sshHost } = event.detail;
       if (path) {
-        setEditedProject({ ...editedProject, path });
+        setEditedProject(prev => ({ ...prev, path }));
         // 如果是文件夹，可以自动设置项目名称
-        if (inputType === 'folder' && !editedProject.name.trim()) {
-          const folderName = path.split(/[/\\]/).pop() || 'New Project';
+        if ((inputType === 'folder' || inputType === 'ssh') && !editedProject.name.trim()) {
+          const folderName = path.split(/[/\\:]/).pop() || 'New Project';
           setEditedProject(prev => ({ ...prev, path, name: folderName }));
+        }
+        // SSH workspace 自动提取名称
+        if (inputType === 'ssh-workspace' && !editedProject.name.trim()) {
+          const fileName = path.split(/[/\\:]/).pop()?.replace('.code-workspace', '') || 'SSH Workspace';
+          setEditedProject(prev => ({ ...prev, path, name: fileName }));
+        }
+        // 自动添加 hostname 作为 tag
+        if (sshHost && (inputType === 'ssh' || inputType === 'ssh-workspace')) {
+          const hostname = sshHost.split('@')[1] || sshHost;
+          const currentTags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
+          if (!currentTags.includes(hostname)) {
+            setTagsInput([...currentTags, hostname].join(', '));
+          }
         }
       }
     };
 
+    const handleSshBrowseResult = (event: any) => {
+      const result = event.detail;
+      if (!result.success) {
+        setTestMessage(result.message);
+        setConnectionTestResult('error');
+        setTimeout(() => {
+          setConnectionTestResult(null);
+          setTestMessage('');
+        }, 5000);
+      }
+    };
+
+    const handleRemoteStatus = (event: any) => {
+      setRemoteStatus(event.detail);
+    };
+
     window.addEventListener('connectionTestResult', handleTestResult);
     window.addEventListener('pathSelected', handlePathSelected);
+    window.addEventListener('sshBrowseResult', handleSshBrowseResult);
+    window.addEventListener('remoteStatus', handleRemoteStatus);
     return () => {
       window.removeEventListener('connectionTestResult', handleTestResult);
       window.removeEventListener('pathSelected', handlePathSelected);
+      window.removeEventListener('sshBrowseResult', handleSshBrowseResult);
+      window.removeEventListener('remoteStatus', handleRemoteStatus);
     };
-  }, [editedProject]);
+  }, [editedProject, tagsInput]);
 
   // 监听ESC键关闭Modal
   useEffect(() => {
@@ -1244,7 +1429,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   };
 
   const autoAddHostTag = () => {
-    if (editedProject.type === 'ssh' && editedProject.path.trim()) {
+    if ((editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && editedProject.path.trim()) {
       const hostname = extractHostFromSshPath(editedProject.path);
       if (hostname) {
         const currentTags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
@@ -1278,7 +1463,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   };
 
   const testSshConnection = async () => {
-    if (editedProject.type !== 'ssh' || !editedProject.path.trim()) {
+    if ((editedProject.type !== 'ssh' && editedProject.type !== 'ssh-workspace') || !editedProject.path.trim()) {
       return;
     }
 
@@ -1312,10 +1497,13 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       onMouseUp={() => setIsDragging(false)}
     >
       <div 
-        className="rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto border"
+        className="rounded-lg max-h-[90vh] overflow-y-auto border"
         style={{ 
           backgroundColor: theme.primaryBackground,
-          borderColor: theme.border 
+          borderColor: theme.border,
+          width: '60vw',
+          minWidth: '400px',
+          maxWidth: '700px'
         }}
         onClick={e => e.stopPropagation()}
         onMouseDown={e => e.stopPropagation()}
@@ -1369,7 +1557,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   borderColor: theme.inputBorder,
                   '--tw-ring-color': theme.focusBorder
                 } as React.CSSProperties}
-                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
+                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path' : editedProject.type === 'ssh-workspace' ? 'user@hostname:/path/to/workspace.code-workspace' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
                 value={editedProject.path}
                 onChange={e => setEditedProject({ ...editedProject, path: e.target.value })}
               />
@@ -1401,7 +1589,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   🗂️ Browse
                 </button>
               )}
-              {editedProject.type === 'ssh' && (
+              {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
                 <div className="flex gap-1">
                   <button
                     className="px-3 py-2 border rounded-lg transition-colors text-sm"
@@ -1417,26 +1605,46 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                     {isTestingConnection ? '⏳' : connectionTestResult === 'success' ? '✅' : connectionTestResult === 'error' ? '❌' : '🔗'}
                     {isTestingConnection ? ' Testing...' : ' Test'}
                   </button>
-                  {isNewProject && (
-                    <button
-                      className="px-2 py-2 border rounded-lg transition-colors text-sm"
-                      style={{
-                        backgroundColor: theme.inputBackground,
-                        color: theme.inputForeground,
-                        borderColor: theme.inputBorder
-                      }}
-                      onClick={() => vscode.postMessage({ type: 'browseSSH' })}
-                      title="Browse SSH connections"
-                    >
-                      📂
-                    </button>
-                  )}
+                  <button
+                    className="px-2 py-2 border rounded-lg transition-colors text-sm"
+                    style={{
+                      backgroundColor: remoteStatus?.isRemote ? theme.inputBackground : theme.inputBackground,
+                      color: remoteStatus?.isRemote ? '#10b981' : theme.inputForeground,
+                      borderColor: remoteStatus?.isRemote ? '#10b981' : theme.inputBorder,
+                      opacity: remoteStatus?.isRemote ? 1 : 0.6
+                    }}
+                    onClick={() => {
+                      if (remoteStatus?.isRemote) {
+                        vscode.postMessage({ 
+                          type: editedProject.type === 'ssh-workspace' ? 'browseSshWorkspace' : 'browseSshFolder'
+                        });
+                      } else {
+                        setTestMessage('Connect to an SSH remote first to browse remote files');
+                        setConnectionTestResult('error');
+                        setTimeout(() => {
+                          setConnectionTestResult(null);
+                          setTestMessage('');
+                        }, 3000);
+                      }
+                    }}
+                    title={remoteStatus?.isRemote 
+                      ? `Browse remote ${editedProject.type === 'ssh-workspace' ? 'workspace files' : 'folders'} (connected to ${remoteStatus.sshHost || 'remote'})` 
+                      : 'Connect to an SSH remote first to browse files'}
+                  >
+                    {remoteStatus?.isRemote ? '📂' : '🔌'}
+                  </button>
                 </div>
               )}
             </div>
-            {editedProject.type === 'ssh' && (
+            {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
               <div className="text-xs mt-1" style={{ color: theme.foreground, opacity: 0.6 }}>
-                Format: user@hostname:/path or vscode-remote://ssh-remote+hostname/path
+                Format: user@hostname:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''}
+                {remoteStatus?.isRemote && (
+                  <span style={{ color: '#10b981' }}> • Connected to {remoteStatus.sshHost || 'remote'} - click 📂 to browse</span>
+                )}
+                {!remoteStatus?.isRemote && (
+                  <span> • Connect to SSH remote first to use file browser</span>
+                )}
               </div>
             )}
             {connectionTestResult && (
@@ -1464,6 +1672,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               <option value="local" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Local Folder</option>
               <option value="workspace" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Workspace File</option>
               <option value="ssh" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>SSH Remote</option>
+              <option value="ssh-workspace" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>SSH Workspace</option>
         </select>
       </div>
           
@@ -1586,7 +1795,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                 autoComplete="off"
                 spellCheck={false}
               />
-              {editedProject.type === 'ssh' && (
+              {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
                 <button
                   className="px-3 py-2 border rounded-lg transition-colors text-sm"
                   style={{
@@ -1602,7 +1811,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               )}
             </div>
             <div className="text-xs mt-1" style={{ color: theme.foreground, opacity: 0.6 }}>
-              Separate tags with commas. {editedProject.type === 'ssh' ? 'SSH projects can auto-add hostname as tag.' : 'Example: react, frontend, typescript'}
+              Separate tags with commas. {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') ? 'SSH projects can auto-add hostname as tag.' : 'Example: react, frontend, typescript'}
             </div>
           </div>
           

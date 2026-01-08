@@ -63,12 +63,15 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     if (project.clickCount) tooltip += `\nAccessed: ${project.clickCount} times`;
     item.tooltip = tooltip;
     
-    // 根据类型设置图标
-    const typeIcons = {
-      local: 'folder',
-      workspace: 'file-code',
-      ssh: 'remote'
+    // 根据类型设置图标和颜色
+    const typeConfig: Record<string, { icon: string; color: string }> = {
+      local: { icon: 'folder-opened', color: 'charts.blue' },
+      workspace: { icon: 'root-folder', color: 'charts.green' },
+      ssh: { icon: 'vm', color: 'charts.orange' },
+      'ssh-workspace': { icon: 'vm-connect', color: 'charts.purple' }
     };
+    
+    const config = typeConfig[project.type] || typeConfig.local;
     
     // 为收藏项目设置特殊图标
     if (project.isFavorite) {
@@ -76,7 +79,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     } else if (project.icon) {
       item.iconPath = vscode.Uri.parse(project.icon);  // 如果有自定义图标
     } else {
-      item.iconPath = new vscode.ThemeIcon(typeIcons[project.type], new vscode.ThemeColor(project.color || 'charts.blue'));
+      item.iconPath = new vscode.ThemeIcon(config.icon, new vscode.ThemeColor(config.color));
     }
     
     item.command = { command: 'projectPilot.openProject', title: 'Open', arguments: [project] };

@@ -2,7 +2,7 @@
   "name": "project-pilot",
   "displayName": "Project Pilot",
   "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config. Runs locally to manage all your projects from one place.",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
@@ -50,6 +50,12 @@
         "category": "Project Pilot"
       },
       {
+        "command": "projectPilot.openFullscreen",
+        "title": "Open Fullscreen View",
+        "category": "Project Pilot",
+        "icon": "$(screen-full)"
+      },
+      {
         "command": "projectPilot.openNewWindow",
         "title": "Open in New Window",
         "category": "Project Pilot",
@@ -70,13 +76,19 @@
         "command": "projectPilot.addWorkspaceFile",
         "title": "Add Workspace File",
         "category": "Project Pilot",
-        "icon": "$(file-code)"
+        "icon": "$(root-folder)"
       },
       {
         "command": "projectPilot.addSshProject",
         "title": "Add SSH Remote",
         "category": "Project Pilot",
-        "icon": "$(remote)"
+        "icon": "$(vm)"
+      },
+      {
+        "command": "projectPilot.addSshWorkspace",
+        "title": "Add SSH Workspace",
+        "category": "Project Pilot",
+        "icon": "$(vm-connect)"
       },
       {
         "command": "projectPilot.addCurrentFolder",
@@ -204,6 +216,11 @@
           "group": "navigation@0"
         },
         {
+          "command": "projectPilot.openFullscreen",
+          "when": "view == projectPilot.manager",
+          "group": "navigation@1"
+        },
+        {
           "command": "projectPilot.addLocalProject",
           "when": "view == projectPilot.outline",
           "group": "navigation@2"
@@ -242,6 +259,10 @@
           "when": "true"
         },
         {
+          "command": "projectPilot.openFullscreen",
+          "when": "true"
+        },
+        {
           "command": "projectPilot.addLocalProject",
           "when": "true"
         },
@@ -251,6 +272,10 @@
         },
         {
           "command": "projectPilot.addSshProject",
+          "when": "true"
+        },
+        {
+          "command": "projectPilot.addSshWorkspace",
           "when": "true"
         },
         {
@@ -298,6 +323,11 @@
         "mac": "cmd+p cmd+p"
       },
       {
+        "command": "projectPilot.openFullscreen",
+        "key": "ctrl+p ctrl+f",
+        "mac": "cmd+p cmd+f"
+      },
+      {
         "command": "projectPilot.addLocalProject",
         "key": "ctrl+p ctrl+l",
         "mac": "cmd+p cmd+l"
@@ -339,6 +369,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically detect and suggest tags for new projects"
+        },
+        "projectPilot.autoOpenFullscreen": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically open fullscreen view when VSCode starts. Disable this to use sidebar view only."
         }
       }
     }

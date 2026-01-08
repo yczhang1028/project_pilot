@@ -79,6 +79,55 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
             payload: { path: result[0].fsPath, inputType: 'workspace' } 
           });
         }
+      } else if (msg.type === 'browseSshFolder' || msg.type === 'browseSshWorkspace') {
+        // 检测是否在远程环境中
+        const remoteInfo = this.getRemoteInfo();
+        
+        if (!remoteInfo.isRemote) {
+          // 不在远程环境，提示用户
+          webviewView.webview.postMessage({ 
+            type: 'sshBrowseResult', 
+            payload: { 
+              success: false, 
+              message: 'Not connected to a remote SSH host. Please connect to an SSH remote first, or manually enter the path.',
+              isRemote: false
+            } 
+          });
+          return;
+        }
+        
+        // 在远程环境中，打开文件/文件夹选择器
+        const isWorkspace = msg.type === 'browseSshWorkspace';
+        const result = await vscode.window.showOpenDialog({
+          canSelectFolders: !isWorkspace,
+          canSelectFiles: isWorkspace,
+          canSelectMany: false,
+          title: isWorkspace ? 'Select Remote Workspace File' : 'Select Remote Folder',
+          filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined
+        });
+        
+        if (result && result[0]) {
+          // 拼接完整的 SSH 路径
+          const remotePath = result[0].path;
+          const sshPath = `${remoteInfo.sshHost}:${remotePath}`;
+          
+          webviewView.webview.postMessage({ 
+            type: 'pathSelected', 
+            payload: { 
+              path: sshPath, 
+              inputType: isWorkspace ? 'ssh-workspace' : 'ssh',
+              remotePath: remotePath,
+              sshHost: remoteInfo.sshHost
+            } 
+          });
+        }
+      } else if (msg.type === 'checkRemoteStatus') {
+        // 检查当前是否在远程环境
+        const remoteInfo = this.getRemoteInfo();
+        webviewView.webview.postMessage({ 
+          type: 'remoteStatus', 
+          payload: remoteInfo
+        });
       }
     });
     this.currentView = webviewView;
@@ -95,15 +144,46 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
     (view ?? this.currentView)?.webview.postMessage(message);
   }
 
-  private async testSshConnection(payload: { path: string; name: string }): Promise<{ success: boolean; message: string }> {
+  private getRemoteInfo(): { isRemote: boolean; remoteName?: string; sshHost?: string } {
+    // 检测是否在远程环境中
+    const remoteName = vscode.env.remoteName;
+    
+    if (!remoteName) {
+      return { isRemote: false };
+    }
+    
+    // 检查是否是 SSH 远程
+    if (remoteName === 'ssh-remote') {
+      // 尝试从工作区获取 SSH 主机信息
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (workspaceFolder) {
+        const uri = workspaceFolder.uri;
+        // SSH URI 格式: vscode-remote://ssh-remote+user@hostname/path
+        if (uri.scheme === 'vscode-remote' && uri.authority.startsWith('ssh-remote+')) {
+          const sshHost = decodeURIComponent(uri.authority.replace('ssh-remote+', ''));
+          return { isRemote: true, remoteName, sshHost };
+        }
+      }
+      return { isRemote: true, remoteName };
+    }
+    
+    return { isRemote: false, remoteName };
+  }
+
+  private async testSshConnection(payload: { path: string; name: string; type?: string }): Promise<{ success: boolean; message: string }> {
     try {
       // 基本格式验证
       if (!payload.path.trim()) {
         return { success: false, message: 'SSH path cannot be empty' };
       }
 
+      const isSshWorkspace = payload.type === 'ssh-workspace' || payload.path.endsWith('.code-workspace');
+
       // 检查SSH格式
       if (payload.path.startsWith('vscode-remote://')) {
+        if (isSshWorkspace && !payload.path.endsWith('.code-workspace')) {
+          return { success: false, message: 'SSH workspace path should end with .code-workspace' };
+        }
         return { success: true, message: 'VSCode remote URI format is valid' };
       } else if (payload.path.includes('@') && payload.path.includes(':')) {
         const [userHost, remotePath] = payload.path.split(':');
@@ -112,6 +192,9 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
         }
         if (!remotePath || remotePath.trim() === '') {
           return { success: false, message: 'Invalid format: missing remote path after :' };
+        }
+        if (isSshWorkspace && !remotePath.endsWith('.code-workspace')) {
+          return { success: false, message: 'SSH workspace path should end with .code-workspace' };
         }
         return { success: true, message: 'SSH connection format is valid' };
       } else {

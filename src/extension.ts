@@ -22,15 +22,69 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.createTreeView('projectPilot.outline', { treeDataProvider: outlineProvider })
   );
 
+  // 全屏视图面板引用
+  let fullscreenPanel: vscode.WebviewPanel | undefined;
+
   // 设置store变化时的回调，同步更新所有视图
   store.setOnChangeCallback(() => {
     outlineProvider.refresh();
     managerProvider.postState();
+    // 同步更新全屏视图
+    if (fullscreenPanel) {
+      fullscreenPanel.webview.postMessage({ type: 'state', payload: store.state });
+    }
   });
+
+  // 启动时自动打开全屏视图（默认开启）
+  const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
+  if (autoOpenFullscreen) {
+    // 延迟一点打开，确保扩展完全加载
+    setTimeout(() => {
+      vscode.commands.executeCommand('projectPilot.openFullscreen');
+    }, 500);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand('projectPilot.showManager', () => {
       vscode.commands.executeCommand('workbench.view.extension.projectPilot');
+    }),
+    vscode.commands.registerCommand('projectPilot.openFullscreen', () => {
+      // 如果面板已存在，直接显示
+      if (fullscreenPanel) {
+        fullscreenPanel.reveal(vscode.ViewColumn.One);
+        return;
+      }
+
+      // 创建新的 Webview Panel
+      fullscreenPanel = vscode.window.createWebviewPanel(
+        'projectPilot.fullscreen',
+        'Project Pilot',
+        vscode.ViewColumn.One,
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')]
+        }
+      );
+
+      // 设置 HTML 内容
+      fullscreenPanel.webview.html = getFullscreenHtml(fullscreenPanel.webview, context);
+      
+      // 设置图标
+      fullscreenPanel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity-bar-icon.svg');
+
+      // 处理消息
+      fullscreenPanel.webview.onDidReceiveMessage(async (msg) => {
+        await handleWebviewMessage(msg, fullscreenPanel!.webview, store);
+      });
+
+      // 面板关闭时清理引用
+      fullscreenPanel.onDidDispose(() => {
+        fullscreenPanel = undefined;
+      });
+
+      // 发送初始状态
+      fullscreenPanel.webview.postMessage({ type: 'state', payload: store.state });
     }),
     vscode.commands.registerCommand('projectPilot.openNewWindow', async () => {
       // 打开新窗口并显示Project Pilot
@@ -155,6 +209,62 @@ export async function activate(context: vscode.ExtensionContext) {
       outlineProvider.refresh();
       managerProvider.postState();
       vscode.window.showInformationMessage(`Added SSH project: ${name}`);
+    }),
+    vscode.commands.registerCommand('projectPilot.addSshWorkspace', async () => {
+      const input = await vscode.window.showInputBox({ 
+        prompt: 'SSH workspace file path',
+        placeHolder: 'user@hostname:/path/to/workspace.code-workspace',
+        validateInput: (value) => {
+          if (!value.trim()) return 'SSH workspace path cannot be empty';
+          if (!value.includes('@') && !value.startsWith('vscode-remote://')) {
+            return 'Please provide a valid SSH format: user@hostname:/path/to/workspace.code-workspace';
+          }
+          if (!value.endsWith('.code-workspace')) {
+            return 'Path should end with .code-workspace';
+          }
+          return null;
+        }
+      });
+      if (!input) { return; }
+      
+      // Extract name suggestion from path
+      const pathPart = input.includes(':') ? input.split(':').pop() : input.split('/').pop();
+      const defaultName = pathPart?.replace(/^\/+/, '').replace('.code-workspace', '') || 'SSH Workspace';
+      
+      // Extract hostname for auto-tagging
+      let hostname = '';
+      try {
+        if (input.includes('@') && input.includes(':')) {
+          const userHost = input.split(':')[0];
+          hostname = userHost.split('@')[1] || '';
+        }
+      } catch {
+        // Ignore hostname extraction errors
+      }
+      
+      const name = await vscode.window.showInputBox({ 
+        prompt: 'Workspace name', 
+        value: defaultName,
+        validateInput: (value) => value.trim() ? null : 'Workspace name cannot be empty'
+      });
+      if (!name) { return; }
+      
+      const tags = ['ssh', 'remote', 'workspace'];
+      if (hostname) {
+        tags.push(hostname);
+      }
+      
+      await store.addProject({ 
+        name: name.trim(), 
+        path: input.trim(), 
+        description: '',
+        type: 'ssh-workspace', 
+        color: '#8b5cf6', 
+        tags 
+      });
+      outlineProvider.refresh();
+      managerProvider.postState();
+      vscode.window.showInformationMessage(`Added SSH workspace: ${name}`);
     }),
     vscode.commands.registerCommand('projectPilot.addCurrentFolder', async () => {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -460,6 +570,8 @@ export async function activate(context: vscode.ExtensionContext) {
       });
     } else if (item.type === 'ssh') {
       openSshProject(item);
+    } else if (item.type === 'ssh-workspace') {
+      openSshWorkspace(item);
     }
   }
 
@@ -491,6 +603,42 @@ export async function activate(context: vscode.ExtensionContext) {
       // Offer to edit the project
       vscode.window.showInformationMessage(
         'Would you like to edit the SSH connection string?',
+        'Edit Project'
+      ).then(choice => {
+        if (choice === 'Edit Project') {
+          vscode.commands.executeCommand('projectPilot.showManager');
+        }
+      });
+    }
+  }
+
+  function openSshWorkspace(item: ProjectItem) {
+    try {
+      // SSH workspace 通过 Remote-SSH 打开远程 .code-workspace 文件
+      let uri: vscode.Uri;
+      
+      if (item.path.startsWith('vscode-remote://')) {
+        // Already a vscode-remote URI
+        uri = vscode.Uri.parse(item.path);
+      } else if (item.path.includes('@') && item.path.includes(':')) {
+        // Format: user@hostname:/path/to/workspace.code-workspace - 标准SSH格式
+        const [userHost, remotePath] = item.path.split(':');
+        const encodedHost = encodeURIComponent(userHost);
+        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedHost}${remotePath}`);
+      } else {
+        // Fallback - try to parse as is
+        const encodedPath = encodeURIComponent(item.path);
+        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedPath}`);
+      }
+      
+      // 使用 VSCode 的 Remote-SSH 功能打开远程 workspace 文件
+      vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
+    } catch (error) {
+      vscode.window.showErrorMessage(`Failed to open SSH workspace "${item.name}": ${error}`);
+      
+      // Offer to edit the project
+      vscode.window.showInformationMessage(
+        'Would you like to edit the SSH workspace path?',
         'Edit Project'
       ).then(choice => {
         if (choice === 'Edit Project') {
@@ -675,5 +823,218 @@ export function deactivate() {
   console.log('Project Pilot: Extension deactivating...');
   if (globalStore) {
     globalStore.dispose();
+  }
+}
+
+// 生成全屏视图的 HTML
+function getFullscreenHtml(webview: vscode.Webview, context: vscode.ExtensionContext): string {
+  const dist = vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist');
+  const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'assets', 'index.js'));
+  const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'assets', 'index.css'));
+  const nonce = getNonce();
+
+  return `<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https: data: blob:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource} data:; connect-src ${webview.cspSource};" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="${styleUri}" rel="stylesheet" />
+    <title>Project Pilot</title>
+    <style>
+      body { padding: 20px; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div style="padding: 20px; text-align: center; color: #666;">
+        Loading Project Pilot...
+      </div>
+    </div>
+    <script nonce="${nonce}">
+      console.log('Project Pilot Fullscreen: HTML loaded');
+      window.addEventListener('error', (e) => {
+        console.error('Project Pilot Error:', e.error);
+      });
+    </script>
+    <script nonce="${nonce}" src="${scriptUri}"></script>
+  </body>
+  </html>`;
+}
+
+function getNonce(): string {
+  let text = '';
+  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (let i = 0; i < 32; i++) {
+    text += possible.charAt(Math.floor(Math.random() * possible.length));
+  }
+  return text;
+}
+
+// 处理 Webview 消息的通用函数
+// 注意：Store 的方法会自动触发 onChangeCallback，从而更新所有视图（sidebar、fullscreen、outline）
+async function handleWebviewMessage(
+  msg: any, 
+  webview: vscode.Webview, 
+  store: ConfigStore
+) {
+  if (msg.type === 'requestState') {
+    webview.postMessage({ type: 'state', payload: store.state });
+  } else if (msg.type === 'refreshUI') {
+    // 重新加载配置并刷新所有视图
+    await store.reload();
+    vscode.window.showInformationMessage('Project Pilot UI refreshed');
+  } else if (msg.type === 'addLocal') {
+    await vscode.commands.executeCommand('projectPilot.addLocalProject');
+  } else if (msg.type === 'addOrUpdate') {
+    // Store 的 upsertProject 会触发 onChangeCallback，自动更新所有视图
+    await store.upsertProject(msg.payload);
+  } else if (msg.type === 'delete') {
+    // Store 的 deleteProject 会触发 onChangeCallback，自动更新所有视图
+    await store.deleteProject(msg.payload.id);
+  } else if (msg.type === 'open') {
+    await vscode.commands.executeCommand('projectPilot.openProject', msg.payload);
+  } else if (msg.type === 'import') {
+    await vscode.commands.executeCommand('projectPilot.importConfig');
+    // import 完成后 store 状态已更新，onChangeCallback 会自动触发
+  } else if (msg.type === 'export') {
+    await vscode.commands.executeCommand('projectPilot.exportConfig');
+  } else if (msg.type === 'openConfig') {
+    await vscode.commands.executeCommand('projectPilot.openConfigFile');
+  } else if (msg.type === 'sync') {
+    await vscode.commands.executeCommand('projectPilot.syncConfig');
+  } else if (msg.type === 'updateUISettings') {
+    // Store 的 updateUISettings 会触发 onChangeCallback，自动更新所有视图
+    await store.updateUISettings(msg.payload);
+  } else if (msg.type === 'recordProjectAccess') {
+    // Store 的 recordProjectAccess 会触发 onChangeCallback，自动更新所有视图
+    await store.recordProjectAccess(msg.payload.id);
+  } else if (msg.type === 'toggleFavorite') {
+    // Store 的 toggleFavorite 会触发 onChangeCallback，自动更新所有视图
+    await store.toggleFavorite(msg.payload.id);
+  } else if (msg.type === 'browseFolder') {
+    const result = await vscode.window.showOpenDialog({
+      canSelectFolders: true,
+      canSelectFiles: false,
+      canSelectMany: false,
+      title: 'Select Project Folder',
+      defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+    });
+    if (result && result[0]) {
+      webview.postMessage({ 
+        type: 'pathSelected', 
+        payload: { path: result[0].fsPath, inputType: 'folder' } 
+      });
+    }
+  } else if (msg.type === 'browseWorkspace') {
+    const result = await vscode.window.showOpenDialog({
+      canSelectFolders: false,
+      canSelectFiles: true,
+      canSelectMany: false,
+      title: 'Select Workspace File',
+      filters: { 'Workspace Files': ['code-workspace'] },
+      defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+    });
+    if (result && result[0]) {
+      webview.postMessage({ 
+        type: 'pathSelected', 
+        payload: { path: result[0].fsPath, inputType: 'workspace' } 
+      });
+    }
+  } else if (msg.type === 'browseSshFolder' || msg.type === 'browseSshWorkspace') {
+    const remoteInfo = getRemoteInfo();
+    
+    if (!remoteInfo.isRemote) {
+      webview.postMessage({ 
+        type: 'sshBrowseResult', 
+        payload: { 
+          success: false, 
+          message: 'Not connected to a remote SSH host. Please connect to an SSH remote first, or manually enter the path.',
+          isRemote: false
+        } 
+      });
+      return;
+    }
+    
+    const isWorkspace = msg.type === 'browseSshWorkspace';
+    const result = await vscode.window.showOpenDialog({
+      canSelectFolders: !isWorkspace,
+      canSelectFiles: isWorkspace,
+      canSelectMany: false,
+      title: isWorkspace ? 'Select Remote Workspace File' : 'Select Remote Folder',
+      filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined
+    });
+    
+    if (result && result[0]) {
+      const remotePath = result[0].path;
+      const sshPath = `${remoteInfo.sshHost}:${remotePath}`;
+      
+      webview.postMessage({ 
+        type: 'pathSelected', 
+        payload: { 
+          path: sshPath, 
+          inputType: isWorkspace ? 'ssh-workspace' : 'ssh',
+          remotePath: remotePath,
+          sshHost: remoteInfo.sshHost
+        } 
+      });
+    }
+  } else if (msg.type === 'checkRemoteStatus') {
+    const remoteInfo = getRemoteInfo();
+    webview.postMessage({ type: 'remoteStatus', payload: remoteInfo });
+  } else if (msg.type === 'testConnection') {
+    const result = await testSshConnectionFormat(msg.payload);
+    webview.postMessage({ type: 'connectionTestResult', payload: result });
+  }
+}
+
+function getRemoteInfo(): { isRemote: boolean; remoteName?: string; sshHost?: string } {
+  const remoteName = vscode.env.remoteName;
+  
+  if (!remoteName) {
+    return { isRemote: false };
+  }
+  
+  if (remoteName === 'ssh-remote') {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (workspaceFolder) {
+      const uri = workspaceFolder.uri;
+      if (uri.scheme === 'vscode-remote' && uri.authority.startsWith('ssh-remote+')) {
+        const sshHost = decodeURIComponent(uri.authority.replace('ssh-remote+', ''));
+        return { isRemote: true, remoteName, sshHost };
+      }
+    }
+    return { isRemote: true, remoteName };
+  }
+  
+  return { isRemote: false, remoteName };
+}
+
+async function testSshConnectionFormat(payload: { path: string; name: string; type?: string }): Promise<{ success: boolean; message: string }> {
+  if (!payload.path.trim()) {
+    return { success: false, message: 'SSH path cannot be empty' };
+  }
+
+  const isSshWorkspace = payload.type === 'ssh-workspace' || payload.path.endsWith('.code-workspace');
+
+  if (payload.path.startsWith('vscode-remote://')) {
+    if (isSshWorkspace && !payload.path.endsWith('.code-workspace')) {
+      return { success: false, message: 'SSH workspace path should end with .code-workspace' };
+    }
+    return { success: true, message: 'VSCode remote URI format is valid' };
+  } else if (payload.path.includes('@') && payload.path.includes(':')) {
+    const [userHost, remotePath] = payload.path.split(':');
+    if (!userHost.includes('@')) {
+      return { success: false, message: 'Invalid format: missing @ in user@hostname part' };
+    }
+    if (!remotePath || remotePath.trim() === '') {
+      return { success: false, message: 'Invalid format: missing remote path after :' };
+    }
+    if (isSshWorkspace && !remotePath.endsWith('.code-workspace')) {
+      return { success: false, message: 'SSH workspace path should end with .code-workspace' };
+    }
+    return { success: true, message: 'SSH connection format is valid' };
+  } else {
+    return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path' };
   }
 }

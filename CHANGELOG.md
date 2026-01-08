@@ -2,6 +2,67 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [1.0.0] - 2026-01-08
+
+### 🎉 First Stable Release!
+Project Pilot is now considered stable and ready for production use.
+
+---
+
+### 🚀 New Features
+- **SSH Workspace Support**: Added new `ssh-workspace` project type for remote `.code-workspace` files
+  - Full support for `user@hostname:/path/to/workspace.code-workspace` format
+  - Support for `vscode-remote://` URI format
+  - Automatic SSH host extraction and tagging
+  - SSH connection testing for workspace files
+- **Fullscreen Editor View**: New dedicated fullscreen view in the main editor area
+  - Access via command palette (`Project Pilot: Open Fullscreen View`) or keyboard shortcut (`Ctrl+P Ctrl+F`)
+  - Retains context when hidden for quick switching
+  - Users can freely choose between sidebar and fullscreen views
+  - Configurable auto-open on startup via `projectPilot.autoOpenFullscreen` setting
+- **Usage-Based Sorting**: New "Sort by Usage" option to prioritize frequently used projects
+  - Tracks click count for each project
+  - Persists usage data across sessions
+- **Group by Target**: New grouping mode that categorizes projects by their target location
+  - Local projects grouped together
+  - SSH projects grouped by hostname
+  - Hostnames prioritized over IP addresses in sorting
+- **Manual UI Refresh**: Added 🔄 Refresh button in Options panel
+  - Reloads configuration from file
+  - Refreshes all views (sidebar, fullscreen, outline)
+
+### 🎨 UI/UX Improvements
+- **Enhanced Project Type Icons**: Improved default icons for all four project types
+  - 📂 Local (folder-opened, blue)
+  - 📦 Workspace (root-folder, green)  
+  - 🖥️ SSH Folder (vm, orange)
+  - 📡 SSH Workspace (vm-connect, purple)
+- **Color-Coded Outline Icons**: Outline view now shows colored icons matching project types
+  - Uses VSCode theme colors for consistency
+- **Bold Project Names**: Project names are now bold for better visibility
+- **Improved Modal Sizing**: Modal now uses 60% of screen width with min/max limits (400px-700px)
+- **Fixed Card Alignment**: Fixed UI bug where "Open" buttons misaligned in cards without SSH info
+  - Consistent button positioning with flexbox layout
+  - Auto-rows for uniform card heights in grid view
+
+### 🔧 Technical Improvements
+- **Remote File Browsing**: SSH project path selection now works when connected to remote host
+  - Automatic detection of current SSH connection
+  - Native file picker for remote directories and workspace files
+  - Auto-constructs full SSH path from selection
+- **Centralized UI Updates**: Refactored `onChangeCallback` for consistent UI synchronization
+  - All views (sidebar, fullscreen, outline) update simultaneously
+  - Eliminated redundant state updates
+- **Configuration Reload**: Added `reload()` method to ConfigStore for manual refresh
+
+### ⚙️ New Settings
+- `projectPilot.autoOpenFullscreen`: Automatically open Project Pilot in fullscreen on startup (default: true)
+
+### 🐛 Bug Fixes
+- Fixed card layout alignment issues in grid view
+- Fixed empty space between Refresh and Settings buttons
+- Improved SSH workspace path validation
+
 ## [0.3.1] - 2025-09-18
 
 ### 📖 Documentation Updates

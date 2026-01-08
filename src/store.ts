@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-export type ProjectType = 'local' | 'workspace' | 'ssh';
+export type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
 
 export interface ProjectItem {
   id?: string;
@@ -133,6 +133,25 @@ export class ConfigStore {
   dispose() {
     if (this.fileWatcher) {
       this.fileWatcher.dispose();
+    }
+  }
+  
+  // 手动重新加载配置
+  async reload() {
+    console.log('Project Pilot: Manually reloading configuration...');
+    try {
+      const buf = await vscode.workspace.fs.readFile(this.fileUri);
+      const newState = JSON.parse(Buffer.from(buf).toString('utf8')) as State;
+      if (newState.projects) {
+        this._state = newState;
+        // 通知视图更新
+        if (this.onChangeCallback) {
+          this.onChangeCallback();
+        }
+      }
+    } catch (error) {
+      console.error('Project Pilot: Failed to reload configuration:', error);
+      throw error;
     }
   }
 
@@ -329,7 +348,7 @@ export class ConfigStore {
         throw new Error(`Invalid project at index ${i}: missing or invalid path`);
       }
       
-      if (!project.type || !['local', 'workspace', 'ssh'].includes(project.type)) {
+      if (!project.type || !['local', 'workspace', 'ssh', 'ssh-workspace'].includes(project.type)) {
         throw new Error(`Invalid project at index ${i}: invalid type "${project.type}"`);
       }
       
