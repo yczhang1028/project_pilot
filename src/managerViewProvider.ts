@@ -42,6 +42,15 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
       } else if (msg.type === 'updateUISettings') {
         await this.store.updateUISettings(msg.payload);
         this.postState(webviewView);
+      } else if (msg.type === 'updateConfig') {
+        const config = vscode.workspace.getConfiguration('projectPilot');
+        if (typeof msg.payload?.autoOpenFullscreen === 'boolean') {
+          await config.update('autoOpenFullscreen', msg.payload.autoOpenFullscreen, vscode.ConfigurationTarget.Global);
+          await vscode.commands.executeCommand('projectPilot.refreshAllViews');
+        }
+      } else if (msg.type === 'refreshUI') {
+        await this.store.reload();
+        vscode.window.showInformationMessage('Project Pilot UI refreshed');
       } else if (msg.type === 'recordProjectAccess') {
         await this.store.recordProjectAccess(msg.payload.id);
         this.postState(webviewView);
@@ -139,7 +148,14 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
   }
 
   postState(view?: vscode.WebviewView) {
-    const message = { type: 'state', payload: this.store.state } as const;
+    const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
+    const message = { 
+      type: 'state', 
+      payload: { 
+        ...this.store.state, 
+        config: { autoOpenFullscreen } 
+      } 
+    } as const;
     console.log('Project Pilot: Posting state to webview', message);
     (view ?? this.currentView)?.webview.postMessage(message);
   }

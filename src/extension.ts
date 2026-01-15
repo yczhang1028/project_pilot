@@ -31,7 +31,7 @@ export async function activate(context: vscode.ExtensionContext) {
     managerProvider.postState();
     // 同步更新全屏视图
     if (fullscreenPanel) {
-      fullscreenPanel.webview.postMessage({ type: 'state', payload: store.state });
+      fullscreenPanel.webview.postMessage({ type: 'state', payload: getWebviewState(store) });
     }
   });
 
@@ -47,6 +47,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('projectPilot.showManager', () => {
       vscode.commands.executeCommand('workbench.view.extension.projectPilot');
+    }),
+    vscode.commands.registerCommand('projectPilot.refreshAllViews', () => {
+      outlineProvider.refresh();
+      managerProvider.postState();
+      if (fullscreenPanel) {
+        fullscreenPanel.webview.postMessage({ type: 'state', payload: getWebviewState(store) });
+      }
     }),
     vscode.commands.registerCommand('projectPilot.openFullscreen', () => {
       // 如果面板已存在，直接显示
@@ -84,7 +91,7 @@ export async function activate(context: vscode.ExtensionContext) {
       });
 
       // 发送初始状态
-      fullscreenPanel.webview.postMessage({ type: 'state', payload: store.state });
+      fullscreenPanel.webview.postMessage({ type: 'state', payload: getWebviewState(store) });
     }),
     vscode.commands.registerCommand('projectPilot.openNewWindow', async () => {
       // 打开新窗口并显示Project Pilot
@@ -871,6 +878,14 @@ function getNonce(): string {
   return text;
 }
 
+function getWebviewState(store: ConfigStore) {
+  const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
+  return {
+    ...store.state,
+    config: { autoOpenFullscreen }
+  };
+}
+
 // 处理 Webview 消息的通用函数
 // 注意：Store 的方法会自动触发 onChangeCallback，从而更新所有视图（sidebar、fullscreen、outline）
 async function handleWebviewMessage(
@@ -879,11 +894,17 @@ async function handleWebviewMessage(
   store: ConfigStore
 ) {
   if (msg.type === 'requestState') {
-    webview.postMessage({ type: 'state', payload: store.state });
+    webview.postMessage({ type: 'state', payload: getWebviewState(store) });
   } else if (msg.type === 'refreshUI') {
     // 重新加载配置并刷新所有视图
     await store.reload();
     vscode.window.showInformationMessage('Project Pilot UI refreshed');
+  } else if (msg.type === 'updateConfig') {
+    const config = vscode.workspace.getConfiguration('projectPilot');
+    if (typeof msg.payload?.autoOpenFullscreen === 'boolean') {
+      await config.update('autoOpenFullscreen', msg.payload.autoOpenFullscreen, vscode.ConfigurationTarget.Global);
+      await vscode.commands.executeCommand('projectPilot.refreshAllViews');
+    }
   } else if (msg.type === 'addLocal') {
     await vscode.commands.executeCommand('projectPilot.addLocalProject');
   } else if (msg.type === 'addOrUpdate') {

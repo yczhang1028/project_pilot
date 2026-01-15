@@ -2,6 +2,12 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [1.0.1] - 2026-01-08
+
+### 🔧 Patch Updates
+- **Auto Open Toggle in Options**: Added a UI switch under Options so users can disable automatic fullscreen launch.
+- **Refresh + Settings Layout Fix**: Fixed spacing between Refresh and Settings buttons in Options panel.
+
 ## [1.0.0] - 2026-01-08
 
 ### 🎉 First Stable Release!

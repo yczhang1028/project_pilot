@@ -20,9 +20,13 @@ type UISettings = {
   viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;
 };
+type ConfigSettings = {
+  autoOpenFullscreen?: boolean;
+};
 type State = { 
   projects: ProjectItem[];
   uiSettings?: UISettings;
+  config?: ConfigSettings;
 };
 
 declare const acquireVsCodeApi: any;
@@ -70,6 +74,7 @@ export default function App() {
   const [showByGroup, setShowByGroup] = useState(true);
   const [groupMode, setGroupMode] = useState<'custom' | 'target'>('custom'); // 分组模式：自定义分组 或 按Target分组
   const [compactMode, setCompactMode] = useState(false);
+  const [autoOpenFullscreen, setAutoOpenFullscreen] = useState(true);
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
   const [showControls, setShowControls] = useState(false);
@@ -94,6 +99,10 @@ export default function App() {
           if (newState.uiSettings.selectedGroup !== undefined) {
             setSelectedGroup(newState.uiSettings.selectedGroup);
           }
+        }
+        
+        if (newState.config?.autoOpenFullscreen !== undefined) {
+          setAutoOpenFullscreen(newState.config.autoOpenFullscreen);
         }
       } else if (e.data?.type === 'connectionTestResult') {
         // 处理连接测试结果
@@ -572,8 +581,26 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Refresh & Settings Buttons */}
+                {/* Auto Open + Refresh & Settings Buttons */}
                 <div className="flex gap-2 items-center">
+                  <button 
+                    className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                    style={{
+                      backgroundColor: autoOpenFullscreen ? theme.listActiveSelectionBackground : theme.inputBackground,
+                      color: autoOpenFullscreen ? theme.buttonForeground : theme.inputForeground,
+                      borderColor: theme.inputBorder,
+                      border: '1px solid'
+                    }}
+                    onClick={() => {
+                      const nextValue = !autoOpenFullscreen;
+                      setAutoOpenFullscreen(nextValue);
+                      vscode.postMessage({ type: 'updateConfig', payload: { autoOpenFullscreen: nextValue } });
+                    }}
+                    title="Toggle auto-open fullscreen view on startup"
+                  >
+                    {autoOpenFullscreen ? '🟢 Auto Open' : '⚪ Auto Open'}
+                  </button>
+
                   <button 
                     className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
                     style={{
