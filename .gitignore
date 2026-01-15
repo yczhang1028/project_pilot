@@ -5,3 +5,5 @@ webview-ui/dist/
 Introduction.md
 prompt.md
 .env
+builds/
+*.vsix
