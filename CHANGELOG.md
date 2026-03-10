@@ -2,6 +2,12 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [1.0.2] - 2026-03-10
+
+### 🔧 Patch Updates
+- **Windows SSH Path Parsing Fix**: Fixed SSH parsing for Windows remote hosts so paths like `user@hostname:C:/project` no longer leak the drive letter into host detection.
+- **SSH Validation and UI Guidance**: Updated validation messages and SSH input placeholders to clearly support Windows remote paths.
+
 ## [1.0.1] - 2026-01-08
 
 ### 🔧 Patch Updates

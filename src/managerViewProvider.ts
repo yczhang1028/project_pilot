@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ConfigStore } from './store';
+import { parseRawSshPath } from './sshPath';
 
 export class ManagerViewProvider implements vscode.WebviewViewProvider {
   private currentView?: vscode.WebviewView;
@@ -201,20 +202,21 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
           return { success: false, message: 'SSH workspace path should end with .code-workspace' };
         }
         return { success: true, message: 'VSCode remote URI format is valid' };
-      } else if (payload.path.includes('@') && payload.path.includes(':')) {
-        const [userHost, remotePath] = payload.path.split(':');
-        if (!userHost.includes('@')) {
+      } else {
+        const parsed = parseRawSshPath(payload.path);
+        if (!parsed) {
+          return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path or user@hostname:C:/path' };
+        }
+        if (!parsed.userHost.includes('@')) {
           return { success: false, message: 'Invalid format: missing @ in user@hostname part' };
         }
-        if (!remotePath || remotePath.trim() === '') {
+        if (!parsed.remotePath || parsed.remotePath.trim() === '') {
           return { success: false, message: 'Invalid format: missing remote path after :' };
         }
-        if (isSshWorkspace && !remotePath.endsWith('.code-workspace')) {
+        if (isSshWorkspace && !parsed.remotePath.endsWith('.code-workspace')) {
           return { success: false, message: 'SSH workspace path should end with .code-workspace' };
         }
         return { success: true, message: 'SSH connection format is valid' };
-      } else {
-        return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path' };
       }
     } catch (error) {
       return { success: false, message: `Connection test failed: ${error}` };

@@ -4,6 +4,12 @@ import * as path from 'path';
 import { ManagerViewProvider } from './managerViewProvider';
 import { OutlineTreeProvider } from './outlineTreeProvider';
 import { ConfigStore, ProjectItem } from './store';
+import {
+  buildRemoteSshUri,
+  extractHostnameFromSshPath,
+  getSuggestedNameFromSshPath,
+  parseRawSshPath
+} from './sshPath';
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Project Pilot: Extension activating...');
@@ -167,11 +173,11 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('projectPilot.addSshProject', async () => {
       const input = await vscode.window.showInputBox({ 
         prompt: 'SSH connection string',
-        placeHolder: 'user@hostname:/path or vscode-remote://ssh-remote+hostname/path',
+        placeHolder: 'user@hostname:/path, user@hostname:C:/path, or vscode-remote://ssh-remote+hostname/path',
         validateInput: (value) => {
           if (!value.trim()) return 'SSH connection string cannot be empty';
           if (!value.includes('@') && !value.startsWith('vscode-remote://')) {
-            return 'Please provide a valid SSH format: user@hostname:/path';
+            return 'Please provide a valid SSH format: user@hostname:/path or user@hostname:C:/path';
           }
           return null;
         }
@@ -179,19 +185,10 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!input) { return; }
       
       // Extract name suggestion from path
-      const pathPart = input.includes(':') ? input.split(':').pop() : input.split('/').pop();
-      const defaultName = pathPart?.replace(/^\/+/, '') || 'SSH Project';
+      const defaultName = getSuggestedNameFromSshPath(input, 'SSH Project');
       
       // Extract hostname for auto-tagging
-      let hostname = '';
-      try {
-        if (input.includes('@') && input.includes(':')) {
-          const userHost = input.split(':')[0];
-          hostname = userHost.split('@')[1] || '';
-        }
-      } catch {
-        // Ignore hostname extraction errors
-      }
+      const hostname = extractHostnameFromSshPath(input);
       
       const name = await vscode.window.showInputBox({ 
         prompt: 'Project name', 
@@ -220,11 +217,11 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('projectPilot.addSshWorkspace', async () => {
       const input = await vscode.window.showInputBox({ 
         prompt: 'SSH workspace file path',
-        placeHolder: 'user@hostname:/path/to/workspace.code-workspace',
+        placeHolder: 'user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace',
         validateInput: (value) => {
           if (!value.trim()) return 'SSH workspace path cannot be empty';
           if (!value.includes('@') && !value.startsWith('vscode-remote://')) {
-            return 'Please provide a valid SSH format: user@hostname:/path/to/workspace.code-workspace';
+            return 'Please provide a valid SSH format: user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace';
           }
           if (!value.endsWith('.code-workspace')) {
             return 'Path should end with .code-workspace';
@@ -235,19 +232,10 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!input) { return; }
       
       // Extract name suggestion from path
-      const pathPart = input.includes(':') ? input.split(':').pop() : input.split('/').pop();
-      const defaultName = pathPart?.replace(/^\/+/, '').replace('.code-workspace', '') || 'SSH Workspace';
+      const defaultName = getSuggestedNameFromSshPath(input, 'SSH Workspace', true);
       
       // Extract hostname for auto-tagging
-      let hostname = '';
-      try {
-        if (input.includes('@') && input.includes(':')) {
-          const userHost = input.split(':')[0];
-          hostname = userHost.split('@')[1] || '';
-        }
-      } catch {
-        // Ignore hostname extraction errors
-      }
+      const hostname = extractHostnameFromSshPath(input);
       
       const name = await vscode.window.showInputBox({ 
         prompt: 'Workspace name', 
@@ -586,21 +574,10 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       // SSH 项目通过本地存储的连接信息打开远程项目
       // 项目配置始终保存在本地，不需要在远程服务器上安装扩展
-      let uri: vscode.Uri;
-      
-      if (item.path.startsWith('vscode-remote://')) {
-        // Already a vscode-remote URI
-        uri = vscode.Uri.parse(item.path);
-      } else if (item.path.includes('@') && item.path.includes(':')) {
-        // Format: user@hostname:/path - 标准SSH格式
-        const [userHost, remotePath] = item.path.split(':');
-        const encodedHost = encodeURIComponent(userHost);
-        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedHost}${remotePath}`);
-      } else {
-        // Fallback - try to parse as is
-        const encodedPath = encodeURIComponent(item.path);
-        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedPath}`);
-      }
+      const remoteUri = buildRemoteSshUri(item.path);
+      const uri = remoteUri
+        ? vscode.Uri.parse(remoteUri)
+        : vscode.Uri.parse(`vscode-remote://ssh-remote+${encodeURIComponent(item.path)}`);
       
       // 使用 VSCode 的 Remote-SSH 功能打开远程项目
       vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
@@ -622,21 +599,10 @@ export async function activate(context: vscode.ExtensionContext) {
   function openSshWorkspace(item: ProjectItem) {
     try {
       // SSH workspace 通过 Remote-SSH 打开远程 .code-workspace 文件
-      let uri: vscode.Uri;
-      
-      if (item.path.startsWith('vscode-remote://')) {
-        // Already a vscode-remote URI
-        uri = vscode.Uri.parse(item.path);
-      } else if (item.path.includes('@') && item.path.includes(':')) {
-        // Format: user@hostname:/path/to/workspace.code-workspace - 标准SSH格式
-        const [userHost, remotePath] = item.path.split(':');
-        const encodedHost = encodeURIComponent(userHost);
-        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedHost}${remotePath}`);
-      } else {
-        // Fallback - try to parse as is
-        const encodedPath = encodeURIComponent(item.path);
-        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedPath}`);
-      }
+      const remoteUri = buildRemoteSshUri(item.path);
+      const uri = remoteUri
+        ? vscode.Uri.parse(remoteUri)
+        : vscode.Uri.parse(`vscode-remote://ssh-remote+${encodeURIComponent(item.path)}`);
       
       // 使用 VSCode 的 Remote-SSH 功能打开远程 workspace 文件
       vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
@@ -662,17 +628,11 @@ export async function activate(context: vscode.ExtensionContext) {
     
     try {
       // Try to parse the SSH connection
-      let uri: vscode.Uri;
-      
-      if (project.path.startsWith('vscode-remote://')) {
-        uri = vscode.Uri.parse(project.path);
-      } else if (project.path.includes('@') && project.path.includes(':')) {
-        const [userHost, remotePath] = project.path.split(':');
-        const encodedHost = encodeURIComponent(userHost);
-        uri = vscode.Uri.parse(`vscode-remote://ssh-remote+${encodedHost}${remotePath}`);
-      } else {
+      const remoteUri = buildRemoteSshUri(project.path);
+      if (!remoteUri) {
         throw new Error('Invalid SSH connection string format');
       }
+      const uri = vscode.Uri.parse(remoteUri);
       
       // Try to get the remote authority
       const authority = uri.authority;
@@ -1043,19 +1003,20 @@ async function testSshConnectionFormat(payload: { path: string; name: string; ty
       return { success: false, message: 'SSH workspace path should end with .code-workspace' };
     }
     return { success: true, message: 'VSCode remote URI format is valid' };
-  } else if (payload.path.includes('@') && payload.path.includes(':')) {
-    const [userHost, remotePath] = payload.path.split(':');
-    if (!userHost.includes('@')) {
+  } else {
+    const parsed = parseRawSshPath(payload.path);
+    if (!parsed) {
+      return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path or user@hostname:C:/path' };
+    }
+    if (!parsed.userHost.includes('@')) {
       return { success: false, message: 'Invalid format: missing @ in user@hostname part' };
     }
-    if (!remotePath || remotePath.trim() === '') {
+    if (!parsed.remotePath || parsed.remotePath.trim() === '') {
       return { success: false, message: 'Invalid format: missing remote path after :' };
     }
-    if (isSshWorkspace && !remotePath.endsWith('.code-workspace')) {
+    if (isSshWorkspace && !parsed.remotePath.endsWith('.code-workspace')) {
       return { success: false, message: 'SSH workspace path should end with .code-workspace' };
     }
     return { success: true, message: 'SSH connection format is valid' };
-  } else {
-    return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path' };
   }
 }

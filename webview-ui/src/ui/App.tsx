@@ -32,6 +32,39 @@ type State = {
 declare const acquireVsCodeApi: any;
 const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : { postMessage: console.log };
 
+const parseRawSshPath = (input: string): { userHost: string; hostname: string; remotePath: string } | null => {
+  const trimmed = input.trim();
+  const separatorIndex = trimmed.indexOf(':');
+
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const userHost = trimmed.slice(0, separatorIndex).trim();
+  const remotePath = trimmed.slice(separatorIndex + 1).trim();
+
+  if (!userHost.includes('@') || !remotePath) {
+    return null;
+  }
+
+  const hostname = userHost.split('@')[1] || userHost;
+  return { userHost, hostname, remotePath };
+};
+
+const extractHostnameFromSshPath = (input: string): string | null => {
+  try {
+    if (input.startsWith('vscode-remote://ssh-remote+')) {
+      const encoded = input.replace('vscode-remote://ssh-remote+', '').split('/')[0];
+      const decoded = decodeURIComponent(encoded);
+      return decoded.split('@')[1] || decoded;
+    }
+
+    return parseRawSshPath(input)?.hostname || null;
+  } catch {
+    return null;
+  }
+};
+
 // 调试信息
 console.log('Project Pilot React App: Starting...');
 console.log('VSCode API available:', typeof acquireVsCodeApi !== 'undefined');
@@ -214,21 +247,9 @@ export default function App() {
     
     // SSH 或 SSH-Workspace
     const path = project.path;
-    try {
-      if (path.startsWith('vscode-remote://ssh-remote+')) {
-        // 从 vscode-remote URI 中提取
-        const encoded = path.replace('vscode-remote://ssh-remote+', '').split('/')[0];
-        const decoded = decodeURIComponent(encoded);
-        const hostname = decoded.split('@')[1] || decoded;
-        return `🖥️ ${hostname}`;
-      } else if (path.includes('@') && path.includes(':')) {
-        // 从 user@hostname:/path 格式中提取
-        const userHost = path.split(':')[0];
-        const hostname = userHost.split('@')[1] || userHost;
-        return `🖥️ ${hostname}`;
-      }
-    } catch {
-      // 忽略解析错误
+    const hostname = extractHostnameFromSshPath(path);
+    if (hostname) {
+      return `🖥️ ${hostname}`;
     }
     return '🌐 Remote';
   };
@@ -1438,21 +1459,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   };
 
   const extractHostFromSshPath = (sshPath: string): string | null => {
-    try {
-      if (sshPath.startsWith('vscode-remote://ssh-remote+')) {
-        // 从 vscode-remote URI 中提取
-        const encoded = sshPath.replace('vscode-remote://ssh-remote+', '').split('/')[0];
-        const decoded = decodeURIComponent(encoded);
-        return decoded.split('@')[1] || null;
-      } else if (sshPath.includes('@') && sshPath.includes(':')) {
-        // 从 user@hostname:/path 格式中提取
-        const userHost = sshPath.split(':')[0];
-        return userHost.split('@')[1] || null;
-      }
-      return null;
-    } catch {
-      return null;
-    }
+    return extractHostnameFromSshPath(sshPath);
   };
 
   const autoAddHostTag = () => {
@@ -1584,7 +1591,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   borderColor: theme.inputBorder,
                   '--tw-ring-color': theme.focusBorder
                 } as React.CSSProperties}
-                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path' : editedProject.type === 'ssh-workspace' ? 'user@hostname:/path/to/workspace.code-workspace' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
+                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path or user@hostname:C:/path' : editedProject.type === 'ssh-workspace' ? 'user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
                 value={editedProject.path}
                 onChange={e => setEditedProject({ ...editedProject, path: e.target.value })}
               />
@@ -1665,7 +1672,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
             </div>
             {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
               <div className="text-xs mt-1" style={{ color: theme.foreground, opacity: 0.6 }}>
-                Format: user@hostname:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''}
+                Format: user@hostname:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''} or user@hostname:C:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''}
                 {remoteStatus?.isRemote && (
                   <span style={{ color: '#10b981' }}> • Connected to {remoteStatus.sshHost || 'remote'} - click 📂 to browse</span>
                 )}

@@ -82,7 +82,7 @@ A modern, powerful project manager for Visual Studio Code that supports local fo
 
 #### SSH Remote Projects
 - **Command**: `Project Pilot: Add SSH Remote`
-- Enter SSH connection string in format: `user@hostname:/path`
+- Enter SSH connection string in format: `user@hostname:/path` or `user@hostname:C:/path`
 - Supports vscode-remote URI format
 
 ### Managing Projects
@@ -202,6 +202,7 @@ Configuration files are stored locally in VS Code's global storage on your machi
 
 ### Supported Formats
 - **Standard SSH**: `user@hostname:/path/to/project`
+- **Windows Remote Path**: `user@hostname:C:/path/to/project`
 - **VS Code Remote URI**: `vscode-remote://ssh-remote+hostname/path`
 
 ### Requirements
