@@ -2,6 +2,12 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [1.0.3] - 2026-03-10
+
+### 🔧 Patch Updates
+- **Adaptive Glass UI Refresh**: Refined the manager UI with a more responsive layout, adaptive density, and a lighter glassmorphism-inspired visual treatment.
+- **Outline Productivity Upgrade**: Added richer outline modes, favorites and recent sections, persistent expansion state, and more direct project actions from the tree view.
+
 ## [1.0.2] - 2026-03-10
 
 ### 🔧 Patch Updates

@@ -92,6 +92,45 @@ const getVSCodeTheme = () => {
   };
 };
 
+const toAlpha = (color: string, alpha: number): string => {
+  const value = color.trim();
+
+  if (value.startsWith('#')) {
+    let hex = value.slice(1);
+    if (hex.length === 3) {
+      hex = hex.split('').map(ch => ch + ch).join('');
+    }
+    if (hex.length === 6) {
+      const int = Number.parseInt(hex, 16);
+      const r = (int >> 16) & 255;
+      const g = (int >> 8) & 255;
+      const b = int & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+  }
+
+  const rgbMatch = value.match(/rgba?\(([^)]+)\)/i);
+  if (rgbMatch) {
+    const [r = '255', g = '255', b = '255'] = rgbMatch[1].split(',').map(part => part.trim());
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  return value;
+};
+
+const getGridLayoutStyle = (compact: boolean): React.CSSProperties => ({
+  display: 'grid',
+  gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 220 : 280}px, 1fr))`,
+  gap: compact ? '0.75rem' : '1rem'
+});
+
+const getMiniLayoutStyle = (compact: boolean, narrow: boolean): React.CSSProperties => ({
+  display: 'grid',
+  gridTemplateColumns: `repeat(auto-fit, minmax(${narrow ? 88 : compact ? 92 : 104}px, max-content))`,
+  gap: compact ? '0.6rem' : '0.8rem',
+  justifyContent: 'flex-start'
+});
+
 type ViewMode = 'grid' | 'list' | 'mini';
 type SortBy = 'name' | 'type' | 'recent' | 'frequency';
 
@@ -111,6 +150,7 @@ export default function App() {
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
   const [showControls, setShowControls] = useState(false);
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
   useEffect(() => {
     console.log('Project Pilot: Setting up message listener');
@@ -177,6 +217,12 @@ export default function App() {
     });
 
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
 
@@ -346,46 +392,104 @@ export default function App() {
     vscode.postMessage({ type: 'toggleFavorite', payload: { id } });
   };
 
+  const isNarrowWindow = windowWidth < 760;
+  const isMediumWindow = windowWidth < 1080;
+  const adaptiveCompactMode = compactMode || isMediumWindow;
+  const headerStacked = windowWidth < 920;
+  const actionStacked = windowWidth < 560;
+  const gridLayoutStyle = getGridLayoutStyle(adaptiveCompactMode);
+  const miniLayoutStyle = getMiniLayoutStyle(adaptiveCompactMode, isNarrowWindow);
+  const collectionClassName = viewMode === 'list'
+    ? adaptiveCompactMode ? 'space-y-2' : 'space-y-3'
+    : undefined;
+  const collectionStyle = viewMode === 'grid'
+    ? gridLayoutStyle
+    : viewMode === 'mini'
+      ? miniLayoutStyle
+      : undefined;
+  const primaryGlow = toAlpha(theme.focusBorder, 0.32);
+  const subtleGlow = toAlpha(theme.focusBorder, 0.2);
+  const cardGlassBackground = toAlpha(theme.secondaryBackground, 0.72);
+  const panelBackground = toAlpha(theme.primaryBackground, 0.72);
+  const secondaryPanelBackground = toAlpha(theme.secondaryBackground, 0.62);
+
   return (
     <div 
-      className="p-4 space-y-4 min-h-screen"
+      className="glass-shell p-3 sm:p-4 space-y-4 min-h-screen"
       style={{ 
+        ['--panel-bg' as string]: panelBackground,
+        ['--card-bg' as string]: cardGlassBackground,
+        ['--panel-border' as string]: toAlpha(theme.border, 0.52),
+        ['--button-bg' as string]: toAlpha(theme.inputBackground, 0.56),
+        ['--button-border' as string]: toAlpha(theme.inputBorder, 0.6),
+        ['--input-bg' as string]: toAlpha(theme.inputBackground, 0.48),
+        ['--input-border' as string]: toAlpha(theme.inputBorder, 0.62),
         backgroundColor: theme.background,
         color: theme.foreground 
       }}
     >
+      <div className="floating-grid"></div>
+      <div className="floating-orb floating-orb--a"></div>
+      <div className="floating-orb floating-orb--b"></div>
+
       {/* Header */}
       <div 
-        className="rounded-lg shadow-sm p-4"
+        className="glass-panel hero-panel glow-border rounded-2xl shadow-sm p-4 sm:p-5"
         style={{ 
-          backgroundColor: theme.primaryBackground,
-          borderColor: theme.border 
+          backgroundColor: panelBackground,
+          borderColor: toAlpha(theme.border, 0.52),
+          ['--glow-color' as string]: subtleGlow
         }}
       >
-        <h1 className="text-lg font-bold mb-3" style={{ color: theme.foreground }}>Project Pilot</h1>
+        <div className={`relative z-10 flex ${headerStacked ? 'flex-col gap-4' : 'items-start justify-between gap-4'} mb-4`}>
+          <div className="min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-xl font-semibold tracking-tight" style={{ color: theme.foreground }}>Project Pilot</h1>
+              <span className="stat-chip px-3 py-1 rounded-full text-[11px] uppercase tracking-[0.24em]" style={{ color: toAlpha(theme.foreground, 0.72) }}>
+                Adaptive Command Deck
+              </span>
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-6" style={{ color: toAlpha(theme.foreground, 0.74) }}>
+              Fluid project switching with responsive layouts, layered glass surfaces, and density that adapts to your window width.
+            </p>
+          </div>
+          <div className="control-cluster justify-start sm:justify-end">
+            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
+              {state.projects.length} total
+            </span>
+            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
+              {filtered.length} visible
+            </span>
+            {isMediumWindow && (
+              <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: toAlpha(theme.foreground, 0.82) }}>
+                Auto Compact
+              </span>
+            )}
+          </div>
+        </div>
         
         {/* Search Bar */}
-        <div className="flex gap-2 items-center mb-3">
+        <div className={`relative z-10 flex ${actionStacked ? 'flex-col' : 'gap-2 items-center'} mb-3`}>
           <div className="relative flex-1">
             <input 
-              className="w-full pl-8 pr-8 py-1.5 text-sm rounded-md border focus:ring-2 focus:border-transparent" 
+              className="soft-input w-full pl-10 pr-10 py-2.5 text-sm rounded-xl border focus:ring-2 focus:border-transparent transition-all" 
               style={{
-                backgroundColor: theme.inputBackground,
+                backgroundColor: secondaryPanelBackground,
                 color: theme.inputForeground,
-                borderColor: theme.inputBorder,
+                borderColor: toAlpha(theme.inputBorder, 0.62),
                 '--tw-ring-color': theme.focusBorder
               } as React.CSSProperties}
               placeholder="Search by name, description, path, or tags..." 
               value={q} 
               onChange={e => setQ(e.target.value)} 
             />
-            <svg className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="absolute left-3 top-3 h-4 w-4" style={{ color: toAlpha(theme.inputForeground, 0.56) }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             {q && (
               <button
-                className="absolute right-2.5 top-2.5 h-4 w-4 rounded-full flex items-center justify-center transition-colors hover:bg-gray-200"
-                style={{ color: theme.inputForeground, opacity: 0.6 }}
+                className="absolute right-3 top-3 h-4 w-4 rounded-full flex items-center justify-center transition-colors"
+                style={{ color: theme.inputForeground, opacity: 0.6, backgroundColor: 'transparent' }}
                 onClick={() => setQ('')}
                 title="Clear search"
                 onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
@@ -398,10 +502,13 @@ export default function App() {
             )}
           </div>
           <button 
-            className="px-3 py-1.5 text-sm rounded-md transition-colors"
+            className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
             style={{
               backgroundColor: theme.buttonBackground,
-              color: theme.buttonForeground
+              color: theme.buttonForeground,
+              ['--button-bg' as string]: theme.buttonBackground,
+              ['--button-border' as string]: toAlpha(theme.buttonBackground, 0.58),
+              boxShadow: `0 10px 28px ${primaryGlow}`
             }}
             onMouseOver={(e) => {
               e.currentTarget.style.opacity = '0.9';
@@ -411,14 +518,15 @@ export default function App() {
             }}
             onClick={() => setShowAddForm(!showAddForm)}
           >
-            + Add
+            <span className="text-base leading-none">+</span>
+            <span>{showAddForm ? 'Close' : 'Add Project'}</span>
           </button>
           <button 
-            className="px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-1"
+            className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
             style={{
-              backgroundColor: theme.inputBackground,
+              backgroundColor: secondaryPanelBackground,
               color: theme.inputForeground,
-              borderColor: theme.inputBorder
+              borderColor: toAlpha(theme.inputBorder, 0.62)
             }}
             onClick={() => setShowControls(!showControls)}
             title="Show filters and view options"
@@ -433,21 +541,22 @@ export default function App() {
         {/* Collapsible Controls */}
         {showControls && (
           <div 
-            className="mb-3 p-3 rounded-lg border"
+            className="glass-panel mb-3 p-4 rounded-2xl border"
             style={{ 
-              backgroundColor: theme.secondaryBackground,
-              borderColor: theme.border 
+              backgroundColor: secondaryPanelBackground,
+              borderColor: toAlpha(theme.border, 0.48),
+              ['--glow-color' as string]: subtleGlow
             }}
           >
             <div className="space-y-3">
               {/* Filters Row */}
-              <div className="flex gap-2 items-center flex-wrap">
+              <div className="control-cluster">
                 <select 
-                  className="px-2 py-1 rounded border text-sm"
+                  className="soft-input px-3 py-2 rounded-xl text-sm min-w-[140px]"
                   style={{
-                    backgroundColor: theme.inputBackground,
+                    backgroundColor: secondaryPanelBackground,
                     color: theme.inputForeground,
-                    borderColor: theme.inputBorder
+                    borderColor: toAlpha(theme.inputBorder, 0.62)
                   }}
                   value={selectedTag} 
                   onChange={e => setSelectedTag(e.target.value)}
@@ -459,11 +568,11 @@ export default function App() {
                 </select>
                 
                 <select 
-                  className="px-2 py-1 rounded border text-sm"
+                  className="soft-input px-3 py-2 rounded-xl text-sm min-w-[150px]"
                   style={{
-                    backgroundColor: theme.inputBackground,
+                    backgroundColor: secondaryPanelBackground,
                     color: theme.inputForeground,
-                    borderColor: theme.inputBorder
+                    borderColor: toAlpha(theme.inputBorder, 0.62)
                   }}
                   value={sortBy} 
                   onChange={e => setSortBy(e.target.value as SortBy)}
@@ -475,11 +584,11 @@ export default function App() {
                 </select>
                 
                 <select 
-                  className="px-2 py-1 rounded border text-sm"
+                  className="soft-input px-3 py-2 rounded-xl text-sm min-w-[150px]"
                   style={{
-                    backgroundColor: theme.inputBackground,
+                    backgroundColor: secondaryPanelBackground,
                     color: theme.inputForeground,
-                    borderColor: theme.inputBorder
+                    borderColor: toAlpha(theme.inputBorder, 0.62)
                   }}
                   value={selectedGroup} 
                   onChange={e => {
@@ -496,14 +605,14 @@ export default function App() {
               </div>
 
               {/* Divider */}
-              <div className="border-t" style={{ borderColor: theme.border }}></div>
+              <div className="border-t" style={{ borderColor: toAlpha(theme.border, 0.42) }}></div>
 
               {/* View Options and Configure */}
-              <div className="flex gap-2 items-center flex-wrap justify-between">
-                <div className="flex gap-2 items-center flex-wrap">
-                  <div className="flex rounded border overflow-hidden text-xs" style={{ borderColor: theme.inputBorder }}>
+              <div className={`flex gap-3 ${headerStacked ? 'flex-col' : 'items-start justify-between'}`}>
+                <div className="control-cluster">
+                  <div className="glass-card flex rounded-2xl overflow-hidden text-xs" style={{ borderColor: toAlpha(theme.inputBorder, 0.52), backgroundColor: secondaryPanelBackground }}>
                     <button 
-                      className="px-2 py-1"
+                      className="px-3 py-2 transition-colors"
                       style={{
                         backgroundColor: viewMode === 'grid' ? theme.listActiveSelectionBackground : theme.inputBackground,
                         color: viewMode === 'grid' ? theme.buttonForeground : theme.inputForeground
@@ -516,7 +625,7 @@ export default function App() {
                       Grid
                     </button>
                     <button 
-                      className="px-2 py-1"
+                      className="px-3 py-2 transition-colors"
                       style={{
                         backgroundColor: viewMode === 'list' ? theme.listActiveSelectionBackground : theme.inputBackground,
                         color: viewMode === 'list' ? theme.buttonForeground : theme.inputForeground
@@ -529,7 +638,7 @@ export default function App() {
                       List
                     </button>
                     <button 
-                      className="px-2 py-1"
+                      className="px-3 py-2 transition-colors"
                       style={{
                         backgroundColor: viewMode === 'mini' ? theme.listActiveSelectionBackground : theme.inputBackground,
                         color: viewMode === 'mini' ? theme.buttonForeground : theme.inputForeground
@@ -544,7 +653,7 @@ export default function App() {
                   </div>
                   
                   <button 
-                    className="px-2 py-1 text-xs rounded border"
+                    className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
                     style={{
                       backgroundColor: showByGroup ? theme.listActiveSelectionBackground : theme.inputBackground,
                       color: showByGroup ? theme.buttonForeground : theme.inputForeground,
@@ -558,7 +667,7 @@ export default function App() {
                   
                   {showByGroup && (
                     <button 
-                      className="px-2 py-1 text-xs rounded border"
+                      className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
                       style={{
                         backgroundColor: groupMode === 'target' ? theme.listActiveSelectionBackground : theme.inputBackground,
                         color: groupMode === 'target' ? theme.buttonForeground : theme.inputForeground,
@@ -572,7 +681,7 @@ export default function App() {
                   )}
                   
                   <button 
-                    className="px-2 py-1 text-xs rounded border"
+                    className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
                     style={{
                       backgroundColor: showFavoritesOnly ? theme.listActiveSelectionBackground : theme.inputBackground,
                       color: showFavoritesOnly ? theme.buttonForeground : theme.inputForeground,
@@ -585,7 +694,7 @@ export default function App() {
                   </button>
                   
                   <button 
-                    className="px-2 py-1 text-xs rounded border"
+                    className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
                     style={{
                       backgroundColor: compactMode ? theme.listActiveSelectionBackground : theme.inputBackground,
                       color: compactMode ? theme.buttonForeground : theme.inputForeground,
@@ -603,9 +712,9 @@ export default function App() {
                 </div>
 
                 {/* Auto Open + Refresh & Settings Buttons */}
-                <div className="flex gap-2 items-center">
+                <div className="control-cluster">
                   <button 
-                    className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                    className="soft-button px-3 py-2.5 rounded-xl transition-all text-sm flex items-center gap-2"
                     style={{
                       backgroundColor: autoOpenFullscreen ? theme.listActiveSelectionBackground : theme.inputBackground,
                       color: autoOpenFullscreen ? theme.buttonForeground : theme.inputForeground,
@@ -623,9 +732,9 @@ export default function App() {
                   </button>
 
                   <button 
-                    className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                    className="soft-button px-3 py-2.5 rounded-xl transition-all text-sm flex items-center gap-2"
                     style={{
-                      backgroundColor: theme.inputBackground,
+                      backgroundColor: secondaryPanelBackground,
                       color: theme.inputForeground,
                       borderColor: theme.inputBorder,
                       border: '1px solid'
@@ -637,10 +746,13 @@ export default function App() {
                   </button>
                   
                   <button 
-                    className="px-3 py-1.5 rounded-md transition-colors text-sm flex items-center gap-1"
+                    className="soft-button px-3 py-2.5 rounded-xl transition-all text-sm flex items-center gap-2"
                     style={{
                       backgroundColor: theme.buttonBackground,
-                      color: theme.buttonForeground
+                      color: theme.buttonForeground,
+                      ['--button-bg' as string]: theme.buttonBackground,
+                      ['--button-border' as string]: toAlpha(theme.buttonBackground, 0.58),
+                      boxShadow: `0 8px 22px ${subtleGlow}`
                     }}
                     onClick={() => vscode.postMessage({ type: 'sync' })}
                     title="Configuration options"
@@ -656,20 +768,20 @@ export default function App() {
         {/* Add Form */}
         {showAddForm && (
           <div 
-            className="mt-4 p-4 rounded-lg border"
+            className="glass-panel mt-4 p-4 rounded-2xl border"
             style={{ 
-              backgroundColor: theme.secondaryBackground,
-              borderColor: theme.border 
+              backgroundColor: secondaryPanelBackground,
+              borderColor: toAlpha(theme.border, 0.48)
             }}
           >
             <h3 className="font-medium mb-2" style={{ color: theme.foreground }}>Add New Project</h3>
-            <div className="flex gap-2">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               <button 
-                className="px-3 py-2 rounded border transition-colors"
+                className="soft-button px-3 py-3 rounded-xl transition-all text-left"
                 style={{
-                  backgroundColor: theme.inputBackground,
+                  backgroundColor: toAlpha(theme.inputBackground, 0.58),
                   color: '#3b82f6',
-                  borderColor: '#3b82f6'
+                  borderColor: toAlpha('#3b82f6', 0.68)
                 }}
                 onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
@@ -678,11 +790,11 @@ export default function App() {
                 📂 Local Folder
               </button>
               <button 
-                className="px-3 py-2 rounded border transition-colors"
+                className="soft-button px-3 py-3 rounded-xl transition-all text-left"
                 style={{
-                  backgroundColor: theme.inputBackground,
+                  backgroundColor: toAlpha(theme.inputBackground, 0.58),
                   color: '#10b981',
-                  borderColor: '#10b981'
+                  borderColor: toAlpha('#10b981', 0.68)
                 }}
                 onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f0fdf4'}
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
@@ -691,11 +803,11 @@ export default function App() {
                 📦 Workspace File
               </button>
               <button 
-                className="px-3 py-2 rounded border transition-colors"
+                className="soft-button px-3 py-3 rounded-xl transition-all text-left"
                 style={{
-                  backgroundColor: theme.inputBackground,
+                  backgroundColor: toAlpha(theme.inputBackground, 0.58),
                   color: '#f59e0b',
-                  borderColor: '#f59e0b'
+                  borderColor: toAlpha('#f59e0b', 0.68)
                 }}
                 onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#fffbeb'}
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
@@ -704,11 +816,11 @@ export default function App() {
                 🖥️ SSH Remote
               </button>
               <button 
-                className="px-3 py-2 rounded border transition-colors"
+                className="soft-button px-3 py-3 rounded-xl transition-all text-left"
                 style={{
-                  backgroundColor: theme.inputBackground,
+                  backgroundColor: toAlpha(theme.inputBackground, 0.58),
                   color: '#8b5cf6',
-                  borderColor: '#8b5cf6'
+                  borderColor: toAlpha('#8b5cf6', 0.68)
                 }}
                 onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f5f3ff'}
                 onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
@@ -723,13 +835,14 @@ export default function App() {
       
       {/* Projects Display */}
       <div 
-        className="rounded-lg shadow-sm p-3"
+        className="glass-panel glow-border rounded-2xl shadow-sm p-3 sm:p-4"
         style={{ 
-          backgroundColor: theme.primaryBackground,
-          borderColor: theme.border 
+          backgroundColor: panelBackground,
+          borderColor: toAlpha(theme.border, 0.52),
+          ['--glow-color' as string]: subtleGlow
         }}
       >
-        <div className="flex justify-between items-center mb-3">
+        <div className={`flex ${headerStacked ? 'flex-col items-start gap-2' : 'justify-between items-center'} mb-4`}>
           <h2 className="text-sm font-medium" style={{ color: theme.foreground }}>
             {showFavoritesOnly ? `Favorites (${filtered.length})` : `Projects (${filtered.length})`}
             {!showFavoritesOnly && state.projects.filter(p => p.isFavorite).length > 0 && (
@@ -738,6 +851,14 @@ export default function App() {
               </span>
             )}
           </h2>
+          <div className="control-cluster">
+            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
+              {viewMode.toUpperCase()}
+            </span>
+            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
+              {adaptiveCompactMode ? 'Compact Density' : 'Comfort Density'}
+            </span>
+          </div>
         </div>
         
         {state.projects.length === 0 ? (
@@ -781,30 +902,20 @@ export default function App() {
                   <h3 className="text-lg font-semibold" style={{ color: theme.foreground }}>
                     {groupName}
                   </h3>
-                  <span className="text-sm px-2 py-1 rounded-full" style={{ 
-                    backgroundColor: theme.listHoverBackground, 
-                    color: theme.foreground,
-                    opacity: 0.8 
+                  <span className="stat-chip text-sm px-2.5 py-1 rounded-full" style={{ 
+                    backgroundColor: toAlpha(theme.listHoverBackground, 0.6), 
+                    color: theme.foreground
                   }}>
                     {projects.length}
                   </span>
       </div>
-                <div className={viewMode === 'grid' 
-                  ? compactMode 
-                    ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2 auto-rows-fr" 
-                    : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-fr"
-                  : viewMode === 'mini'
-                    ? "flex flex-wrap gap-2.5"
-                  : compactMode 
-                    ? "space-y-1" 
-                    : "space-y-2"
-                }>
+                <div className={collectionClassName} style={collectionStyle}>
                   {projects.map(p => (
                     <Card 
                       key={p.id ?? p.path} 
                       p={p} 
                       viewMode={viewMode}
-                      compactMode={compactMode}
+                      compactMode={adaptiveCompactMode}
                       theme={theme}
                       allGroups={allGroups}
                       onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
@@ -821,22 +932,13 @@ export default function App() {
             ))}
           </div>
         ) : (
-          <div className={viewMode === 'grid' 
-            ? compactMode 
-              ? "grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-2 auto-rows-fr" 
-              : "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-fr"
-            : viewMode === 'mini'
-              ? "flex flex-wrap gap-2.5"
-            : compactMode 
-              ? "space-y-1" 
-              : "space-y-2"
-          }>
+          <div className={collectionClassName} style={collectionStyle}>
         {filtered.map(p => (
               <Card 
                 key={p.id ?? p.path} 
                 p={p} 
                 viewMode={viewMode}
-                compactMode={compactMode}
+                compactMode={adaptiveCompactMode}
                 theme={theme}
                 allGroups={allGroups}
                 onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
@@ -920,17 +1022,18 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   if (viewMode === 'mini') {
     return (
       <div 
-        className="group relative text-center flex flex-col flex-shrink-0"
-        style={{ width: '100px', height: '100px' }}
+        className="glass-card glow-border group relative text-center flex flex-col flex-shrink-0 rounded-2xl px-2 py-2"
+        style={{ width: compactMode ? '92px' : '108px', height: compactMode ? '98px' : '112px', ['--glow-color' as string]: toAlpha(p.color || theme.focusBorder, 0.2) }}
         title={`${p.description ? p.description + '\n' : ''}Path: ${p.path}${p.tags?.length ? '\nTags: ' + p.tags.join(', ') : ''}`}
       >
         {/* Icon */}
         <div 
-          className="w-10 h-10 mx-auto mt-2 rounded border-2 flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-105"
+          className="w-10 h-10 mx-auto mt-1 rounded-xl border-2 flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-105"
           style={{ 
             borderColor: p.color,
-            backgroundColor: theme.secondaryBackground,
-            color: p.color
+            backgroundColor: toAlpha(theme.secondaryBackground, 0.72),
+            color: p.color,
+            boxShadow: `0 0 22px ${toAlpha(p.color || theme.focusBorder, 0.18)}`
           }}
           onClick={onOpen}
         >
@@ -944,7 +1047,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         {/* Name */}
         <div className="px-1 mt-1">
           <div 
-            className="text-xs font-bold cursor-pointer text-center w-full truncate"
+            className="text-xs font-semibold cursor-pointer text-center w-full truncate"
             style={{ color: theme.foreground }}
             onClick={onOpen}
           >
@@ -1011,21 +1114,21 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   if (viewMode === 'list') {
     return (
       <div 
-        className={`flex items-center gap-4 ${compactMode ? "p-2" : "p-3"} rounded-lg border-l-4 border-r border-t border-b hover:shadow-md transition-shadow group`}
+        className={`glass-card glow-border flex items-center gap-4 ${compactMode ? "p-2.5" : "p-3.5"} rounded-2xl border transition-all duration-200 group`}
         style={{ 
-          backgroundColor: theme.secondaryBackground, 
-          borderLeftColor: p.color,
-          borderRightColor: theme.border,
-          borderTopColor: theme.border,
-          borderBottomColor: theme.border
+          backgroundColor: toAlpha(theme.secondaryBackground, 0.72), 
+          borderColor: toAlpha(theme.border, 0.42),
+          boxShadow: `0 10px 24px ${toAlpha(p.color || theme.focusBorder, 0.08)}`,
+          ['--glow-color' as string]: toAlpha(p.color || theme.focusBorder, 0.16)
         }}
       >
         <div 
-          className={`${compactMode ? "w-8 h-8 text-lg" : "w-12 h-12 text-2xl"} rounded-lg flex items-center justify-center border-2 cursor-pointer hover:opacity-80 transition-opacity`}
+          className={`${compactMode ? "w-9 h-9 text-lg" : "w-12 h-12 text-2xl"} rounded-xl flex items-center justify-center border-2 cursor-pointer hover:opacity-80 transition-opacity`}
           style={{ 
             borderColor: p.color,
-            backgroundColor: theme.secondaryBackground,
-            color: p.color
+            backgroundColor: toAlpha(theme.primaryBackground, 0.66),
+            color: p.color,
+            boxShadow: `0 0 22px ${toAlpha(p.color || theme.focusBorder, 0.14)}`
           }}
           onClick={onOpen}
           title="Click to open project"
@@ -1074,7 +1177,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         
         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
-            className={`p-2 rounded-lg transition-colors ${p.isFavorite ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-500 hover:text-yellow-600'} hover:bg-yellow-50`}
+            className={`soft-button p-2 rounded-xl transition-colors ${p.isFavorite ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-500 hover:text-yellow-600'}`}
             onClick={() => onToggleFavorite(p.id!)}
             title={p.isFavorite ? "Remove from favorites" : "Add to favorites"}
           >
@@ -1083,7 +1186,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             </svg>
           </button>
           <button
-            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            className="soft-button p-2 text-gray-500 hover:text-blue-600 rounded-xl transition-colors"
             onClick={onOpen}
             title="Open Project"
           >
@@ -1092,7 +1195,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             </svg>
           </button>
           <button
-            className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+            className="soft-button p-2 text-gray-500 hover:text-green-600 rounded-xl transition-colors"
             onClick={() => setIsEditing(true)}
             title="Edit Project"
           >
@@ -1101,7 +1204,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             </svg>
           </button>
           <button
-            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            className="soft-button p-2 text-gray-500 hover:text-red-600 rounded-xl transition-colors"
             onClick={onDelete}
             title="Delete Project"
           >
@@ -1130,16 +1233,18 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   // Grid view
   return (
     <div 
-      className="rounded-lg border-2 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col h-full"
+      className="glass-card glow-border rounded-2xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col h-full"
       style={{ 
-        backgroundColor: theme.secondaryBackground,
-        borderColor: p.color
+        backgroundColor: toAlpha(theme.secondaryBackground, 0.72),
+        borderColor: toAlpha(p.color || theme.border, 0.46),
+        boxShadow: `0 14px 32px ${toAlpha(p.color || theme.focusBorder, 0.08)}`,
+        ['--glow-color' as string]: toAlpha(p.color || theme.focusBorder, 0.18)
       }}
     >
       <div 
-        className={`${compactMode ? 'h-20' : 'h-32'} flex items-center justify-center relative cursor-pointer flex-shrink-0`}
+        className={`${compactMode ? 'h-24' : 'h-36'} flex items-center justify-center relative cursor-pointer flex-shrink-0`}
         style={{ 
-          backgroundColor: p.icon ? 'transparent' : theme.primaryBackground,
+          backgroundColor: p.icon ? 'transparent' : toAlpha(theme.primaryBackground, 0.72),
           backgroundImage: p.icon ? `url(${p.icon})` : 'none',
           backgroundSize: 'cover',
           backgroundPosition: 'center'
@@ -1149,7 +1254,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         {!p.icon && (
           <div className="text-center" style={{ color: p.color }}>
             <div className={`${compactMode ? "text-2xl mb-1" : "text-4xl mb-2"}`}>{typeIcons[p.type]}</div>
-            <div className={`${compactMode ? "text-xs" : "text-sm"} opacity-80 capitalize font-medium`}>{p.type}</div>
+            <div className={`${compactMode ? "text-xs" : "text-sm"} opacity-80 capitalize font-medium tracking-wide`}>{p.type}</div>
           </div>
         )}
         
@@ -1304,8 +1409,8 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
         <div 
           className="px-4 pb-4 border-t"
           style={{ 
-            backgroundColor: theme.primaryBackground,
-            borderColor: theme.border 
+            backgroundColor: toAlpha(theme.primaryBackground, 0.8),
+            borderColor: toAlpha(theme.border, 0.42) 
           }}
         >
           <div className="pt-3 space-y-2 text-sm" style={{ color: theme.foreground }}>

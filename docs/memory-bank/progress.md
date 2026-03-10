@@ -6,3 +6,6 @@
 - Fixed SSH parsing so Windows remote paths like `user@host:C:/repo` do not leak the drive letter into the SSH authority
 - Updated validation and UI help text to mention Windows remote path support
 - Bumped release version to `1.0.2` for publishing
+- Enhanced the manager UI with adaptive glass-style visuals and more responsive card layouts
+- Upgraded outline with richer modes, favorites/recent sections, and direct project actions
+- Bumped release version to `1.0.3` for publishing

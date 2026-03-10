@@ -2,7 +2,7 @@
   "name": "project-pilot",
   "displayName": "Project Pilot",
   "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config. Runs locally to manage all your projects from one place.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
@@ -152,7 +152,7 @@
       },
       {
         "command": "projectPilot.toggleOutlineView",
-        "title": "Toggle Outline View",
+        "title": "Cycle Outline Mode",
         "category": "Project Pilot",
         "icon": "$(list-tree)"
       },
@@ -173,6 +173,42 @@
         "title": "Remove from Favorites",
         "category": "Project Pilot",
         "icon": "$(star-full)"
+      },
+      {
+        "command": "projectPilot.copyProjectPath",
+        "title": "Copy Project Path",
+        "category": "Project Pilot",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "projectPilot.copyProjectName",
+        "title": "Copy Project Name",
+        "category": "Project Pilot",
+        "icon": "$(symbol-string)"
+      },
+      {
+        "command": "projectPilot.deleteProjectFromOutline",
+        "title": "Delete Project",
+        "category": "Project Pilot",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "projectPilot.moveProjectToGroup",
+        "title": "Move Project to Group",
+        "category": "Project Pilot",
+        "icon": "$(folder-active)"
+      },
+      {
+        "command": "projectPilot.renameOutlineGroup",
+        "title": "Rename Group",
+        "category": "Project Pilot",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "projectPilot.testSshConnectionFromOutline",
+        "title": "Test SSH Connection",
+        "category": "Project Pilot",
+        "icon": "$(debug-disconnect)"
       }
     ],
     "viewsContainers": {
@@ -234,13 +270,33 @@
           "command": "projectPilot.scanWorkspaceFolders",
           "when": "view == projectPilot.outline",
           "group": "navigation@4"
+        },
+        {
+          "command": "projectPilot.openProject",
+          "when": "view == projectPilot.outline",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
         {
-          "when": "view == projectPilot.outline",
+          "when": "view == projectPilot.outline && viewItem =~ /outline-project/",
           "command": "projectPilot.openProject",
           "group": "navigation@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-project/",
+          "command": "projectPilot.copyProjectPath",
+          "group": "clipboard@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-project/",
+          "command": "projectPilot.copyProjectName",
+          "group": "clipboard@2"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-project/",
+          "command": "projectPilot.moveProjectToGroup",
+          "group": "organization@1"
         },
         {
           "when": "view == projectPilot.outline && viewItem =~ /not-favorited/",
@@ -251,6 +307,21 @@
           "when": "view == projectPilot.outline && viewItem =~ /favorited/",
           "command": "projectPilot.removeFromFavorites",
           "group": "favorites@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /ssh-project/",
+          "command": "projectPilot.testSshConnectionFromOutline",
+          "group": "remote@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-project/",
+          "command": "projectPilot.deleteProjectFromOutline",
+          "group": "danger@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-group/ && viewItem =~ /mode:group/",
+          "command": "projectPilot.renameOutlineGroup",
+          "group": "organization@2"
         }
       ],
       "commandPalette": [

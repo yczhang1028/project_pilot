@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ManagerViewProvider } from './managerViewProvider';
-import { OutlineTreeProvider } from './outlineTreeProvider';
+import { OutlineMode, OutlineTreeProvider } from './outlineTreeProvider';
 import { ConfigStore, ProjectItem } from './store';
 import {
   buildRemoteSshUri,
@@ -23,9 +23,20 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.registerWebviewViewProvider('projectPilot.manager', managerProvider)
   );
 
-  const outlineProvider = new OutlineTreeProvider(store);
+  const outlineProvider = new OutlineTreeProvider(
+    store,
+    context.workspaceState,
+    (store.state.uiSettings?.outlineMode as OutlineMode | undefined) || 'group'
+  );
+  const outlineTreeView = vscode.window.createTreeView('projectPilot.outline', { treeDataProvider: outlineProvider });
+  context.subscriptions.push(outlineTreeView);
   context.subscriptions.push(
-    vscode.window.createTreeView('projectPilot.outline', { treeDataProvider: outlineProvider })
+    outlineTreeView.onDidExpandElement(event => {
+      outlineProvider.setExpandedState(event.element, true);
+    }),
+    outlineTreeView.onDidCollapseElement(event => {
+      outlineProvider.setExpandedState(event.element, false);
+    })
   );
 
   // 全屏视图面板引用
@@ -451,9 +462,10 @@ export async function activate(context: vscode.ExtensionContext) {
       managerProvider.postState();
       vscode.window.showInformationMessage('Project Pilot outline refreshed');
     }),
-    vscode.commands.registerCommand('projectPilot.toggleOutlineView', () => {
-      outlineProvider.toggleView();
-      vscode.window.showInformationMessage('Outline view toggled');
+    vscode.commands.registerCommand('projectPilot.toggleOutlineView', async () => {
+      const nextMode = outlineProvider.cycleMode();
+      await store.updateUISettings({ outlineMode: nextMode });
+      vscode.window.showInformationMessage(`Outline mode: ${outlineProvider.getModeLabel()}`);
     }),
     vscode.commands.registerCommand('projectPilot.syncConfig', async () => {
       const choice = await vscode.window.showQuickPick([
@@ -551,6 +563,117 @@ export async function activate(context: vscode.ExtensionContext) {
         await store.toggleFavorite(item.project.id);
         vscode.window.showInformationMessage(`Removed "${item.project.name}" from favorites`);
       }
+    }),
+    vscode.commands.registerCommand('projectPilot.copyProjectPath', async (item?: any) => {
+      if (!item?.project?.path) {
+        return;
+      }
+      await vscode.env.clipboard.writeText(item.project.path);
+      vscode.window.showInformationMessage(`Copied path for "${item.project.name}"`);
+    }),
+    vscode.commands.registerCommand('projectPilot.copyProjectName', async (item?: any) => {
+      if (!item?.project?.name) {
+        return;
+      }
+      await vscode.env.clipboard.writeText(item.project.name);
+      vscode.window.showInformationMessage(`Copied project name "${item.project.name}"`);
+    }),
+    vscode.commands.registerCommand('projectPilot.deleteProjectFromOutline', async (item?: any) => {
+      if (!item?.project?.id) {
+        return;
+      }
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete "${item.project.name}" from Project Pilot?`,
+        { modal: true },
+        'Delete'
+      );
+      if (confirm !== 'Delete') {
+        return;
+      }
+      await store.deleteProject(item.project.id);
+      vscode.window.showInformationMessage(`Deleted "${item.project.name}"`);
+    }),
+    vscode.commands.registerCommand('projectPilot.moveProjectToGroup', async (item?: any) => {
+      if (!item?.project?.id) {
+        return;
+      }
+
+      const existingGroups = Array.from(new Set(
+        store.state.projects
+          .map(project => project.group)
+          .filter((group): group is string => !!group && group.trim().length > 0)
+      )).sort();
+
+      const choice = await vscode.window.showQuickPick(
+        [
+          { label: '$(folder) Ungrouped', value: '__ungrouped__' },
+          { label: '$(add) Create New Group', value: '__new__' },
+          ...existingGroups.map(group => ({ label: `$(folder) ${group}`, value: group }))
+        ],
+        { placeHolder: `Move "${item.project.name}" to group` }
+      );
+
+      if (!choice) {
+        return;
+      }
+
+      let nextGroup: string | undefined;
+      if (choice.value === '__new__') {
+        const newGroup = await vscode.window.showInputBox({
+          prompt: 'New group name',
+          value: item.project.group || '',
+          validateInput: value => value.trim() ? undefined : 'Group name cannot be empty'
+        });
+        if (!newGroup) {
+          return;
+        }
+        nextGroup = newGroup.trim();
+      } else if (choice.value === '__ungrouped__') {
+        nextGroup = undefined;
+      } else {
+        nextGroup = choice.value;
+      }
+
+      await store.upsertProject({
+        ...item.project,
+        group: nextGroup
+      });
+      vscode.window.showInformationMessage(
+        nextGroup
+          ? `Moved "${item.project.name}" to "${nextGroup}"`
+          : `Moved "${item.project.name}" to Ungrouped`
+      );
+    }),
+    vscode.commands.registerCommand('projectPilot.renameOutlineGroup', async (item?: any) => {
+      if (!item?.groupName || outlineProvider.getMode() !== 'group') {
+        return;
+      }
+
+      const nextGroupName = await vscode.window.showInputBox({
+        prompt: `Rename group "${item.groupName}"`,
+        value: item.groupName === 'Ungrouped' ? '' : item.groupName,
+        validateInput: value => value.trim() ? undefined : 'Group name cannot be empty'
+      });
+
+      if (!nextGroupName) {
+        return;
+      }
+
+      const updatedProjects = store.state.projects.filter(project => (project.group || 'Ungrouped') === item.groupName);
+      for (const project of updatedProjects) {
+        await store.upsertProject({
+          ...project,
+          group: nextGroupName.trim()
+        });
+      }
+
+      vscode.window.showInformationMessage(`Renamed group "${item.groupName}" to "${nextGroupName.trim()}"`);
+    }),
+    vscode.commands.registerCommand('projectPilot.testSshConnectionFromOutline', async (item?: any) => {
+      if (!item?.project) {
+        return;
+      }
+      await testSshConnection(item.project);
     })
   );
 

@@ -19,8 +19,9 @@ export interface ProjectItem {
 
 export interface UISettings {
   compactMode?: boolean;
-  viewMode?: 'grid' | 'list';
+  viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;
+  outlineMode?: 'group' | 'target' | 'type' | 'flat';
 }
 
 interface State {
@@ -66,7 +67,8 @@ export class ConfigStore {
         this._state.uiSettings = {
           compactMode: false,
           viewMode: 'grid',
-          selectedGroup: ''
+          selectedGroup: '',
+          outlineMode: 'group'
         };
       }
     } catch {
@@ -88,7 +90,8 @@ export class ConfigStore {
         uiSettings: {
           compactMode: false,
           viewMode: 'grid',
-          selectedGroup: ''
+          selectedGroup: '',
+          outlineMode: 'group'
         }
       };
       await this.save();
@@ -232,7 +235,8 @@ export class ConfigStore {
       this._state.uiSettings = {
         compactMode: false,
         viewMode: 'grid',
-        selectedGroup: ''
+        selectedGroup: '',
+        outlineMode: 'group'
       };
     }
     

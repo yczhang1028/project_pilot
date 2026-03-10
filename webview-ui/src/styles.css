@@ -2,5 +2,210 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light dark; }
-body { @apply text-sm; }
+:root {
+  color-scheme: light dark;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  @apply text-sm;
+  overflow-x: hidden;
+}
+
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: auto;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 9999px;
+  filter: blur(72px);
+  opacity: 0.32;
+}
+
+body::before {
+  top: -4rem;
+  left: -5rem;
+  width: 14rem;
+  height: 14rem;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.28), transparent 70%);
+  animation: drift 18s ease-in-out infinite;
+}
+
+body::after {
+  right: -3rem;
+  bottom: -4rem;
+  width: 18rem;
+  height: 18rem;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.22), transparent 70%);
+  animation: drift 24s ease-in-out infinite reverse;
+}
+
+.glass-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+}
+
+.glass-panel {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--panel-border, rgba(255, 255, 255, 0.12)) 78%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    color-mix(in srgb, var(--panel-bg, rgba(18, 24, 38, 0.78)) 86%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 18px 40px rgba(2, 6, 23, 0.16);
+  backdrop-filter: blur(18px) saturate(145%);
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 45%, rgba(255, 255, 255, 0.03));
+  opacity: 0.9;
+}
+
+.hero-panel::after {
+  content: '';
+  position: absolute;
+  inset: auto -10% -45% 38%;
+  height: 180px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.18), transparent 68%);
+  filter: blur(36px);
+  pointer-events: none;
+}
+
+.glass-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--card-bg, rgba(15, 23, 42, 0.65)) 88%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 16px 34px rgba(2, 6, 23, 0.14);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.12), transparent 32%, transparent 68%, rgba(255, 255, 255, 0.05));
+  opacity: 0.75;
+}
+
+.glow-border {
+  position: relative;
+}
+
+.glow-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 0 24px var(--glow-color, rgba(96, 165, 250, 0.22));
+  opacity: 0.85;
+}
+
+.soft-button {
+  border: 1px solid color-mix(in srgb, var(--button-border, rgba(255, 255, 255, 0.14)) 80%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    color-mix(in srgb, var(--button-bg, rgba(30, 41, 59, 0.58)) 90%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 8px 20px rgba(2, 6, 23, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.soft-button:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 12px 24px rgba(2, 6, 23, 0.18);
+}
+
+.soft-input {
+  border: 1px solid color-mix(in srgb, var(--input-border, rgba(255, 255, 255, 0.14)) 82%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--input-bg, rgba(15, 23, 42, 0.5)) 88%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.floating-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(8px);
+  pointer-events: none;
+  opacity: 0.5;
+  animation: drift 14s ease-in-out infinite;
+}
+
+.floating-orb--a {
+  top: 2rem;
+  right: 12%;
+  width: 88px;
+  height: 88px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.28), transparent 70%);
+}
+
+.floating-orb--b {
+  bottom: 8%;
+  left: 6%;
+  width: 128px;
+  height: 128px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.22), transparent 70%);
+  animation-duration: 22s;
+}
+
+.floating-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.08;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, black 35%, transparent 85%);
+}
+
+.control-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.stat-chip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(8px);
+}
+
+@keyframes drift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(12px, -10px, 0) scale(1.05);
+  }
+}
