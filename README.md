@@ -50,29 +50,11 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 3. Run `Project Pilot: Show Manager`.
 4. Add your first project with `+ Add` or `Project Pilot: Add Local Folder`.
 
-## Main Features
+## Documentation
 
-### Manager
-- Responsive manager UI with `Grid`, `List`, and `Mini` views
-- Search by name, path, description, and tags
-- Group projects visually and customize colors, icons, and tags
-- Unified Add/Edit modal with better overlay behavior
-
-### Outline
-- Cycle between `By Group`, `By Target`, `By Type`, and `Flat`
-- Favorites and recent sections surface important projects automatically
-- Right-click actions for copy path, move group, favorite toggle, delete, and SSH testing
-
-### SSH Support
-- Supports `user@hostname:/path/to/project`
-- Supports Windows-style remote paths like `user@hostname:C:/path/to/project`
-- Supports `vscode-remote://ssh-remote+hostname/path`
-- Built-in SSH connection testing before opening
-
-### Configuration
-- Stored locally on your machine
-- Import, export, backup, restore, and JSON editing workflows
-- Works across VS Code, Cursor, and similar editors without remote installation
+- [User Guide](docs/user-guide.md)
+- [Commands](docs/commands.md)
+- [Development](docs/development.md)
 
 ## Main Commands
 
@@ -89,23 +71,7 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 | `Project Pilot: Sync Configuration` | Import, export, replace, or edit config | - |
 | `Project Pilot: Test SSH Connection` | Validate SSH project paths | - |
 
-## Configuration File
-
-Project data is stored locally in:
-
-- Windows: `%APPDATA%/Code/User/globalStorage/project-pilot/data/projects.json`
-- macOS: `~/Library/Application Support/Code/User/globalStorage/project-pilot/data/projects.json`
-- Linux: `~/.config/Code/User/globalStorage/project-pilot/data/projects.json`
-
-All project data stays local, including SSH entries.
-
-## Development
-
-```bash
-npm run build
-npm run build:ext
-npm run build:webview
-```
+Detailed usage, SSH formats, configuration behavior, and development notes now live under `docs/`.
 
 ## License
 

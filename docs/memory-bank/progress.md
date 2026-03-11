@@ -13,3 +13,4 @@
 - Added a sanitized demo `projects.demo.json` for screenshots without exposing personal or company project data
 - Reorganized README and CHANGELOG around the new `2.0.0` release story
 - Bumped the extension version to `2.0.0` for the first major modern glass UI release
+- Moved detailed usage and development documentation out of README and into `docs/` to keep the marketplace page concise
