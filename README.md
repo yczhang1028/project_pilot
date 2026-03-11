@@ -9,38 +9,38 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 
 ## Why Project Pilot
 
-- One place for `local`, `.code-workspace`, `ssh`, and `ssh-workspace` targets
-- Adaptive `Grid`, `List`, and `Mini` layouts for sidebars and fullscreen
-- A stronger `Outline` with `By Group`, `By Target`, `By Type`, and `Flat`
-- Portable local JSON config with import, export, backup, and restore
-- A refined 2.0 glass-style UI with cleaner controls and unified modals
+- `📁` One place for `local`, `.code-workspace`, `ssh`, and `ssh-workspace` targets
+- `🧩` Adaptive `Grid`, `List`, and `Mini` layouts for sidebars and fullscreen
+- `🌲` A stronger `Outline` with `By Group`, `By Target`, `By Type`, and `Flat`
+- `💾` Portable local JSON config with import, export, backup, and restore
+- `✨` A refined 2.0 glass-style UI with cleaner controls and unified modals
 
 ## New In 2.0
 
-- Modern glass-inspired interface refresh
-- Better adaptive layouts for sidebars and fullscreen
-- Favorites and recent sections in Outline
-- Richer Outline context actions
-- Cleaner command palette with less noise
-- Proper overlay Add/Edit modals
+- `💎` Modern glass-inspired interface refresh
+- `📐` Better adaptive layouts for sidebars and fullscreen
+- `⭐` Favorites and recent sections in Outline
+- `🛠️` Richer Outline context actions
+- `🧹` Cleaner command palette with less noise
+- `🪟` Proper overlay Add/Edit modals
 
 ![Project Pilot Overview](media/demo/demo.png)
 
 ## Screenshots
 
-### Grid
+### `🗂️` Grid
 ![Grid View](media/demo/demo_grid.png)
 
-### List
+### `📋` List
 ![List View](media/demo/demo_list.png)
 
-### Mini
+### `🔹` Mini
 ![Mini View](media/demo/demo_mini.png)
 
-### Add / Edit
+### `✍️` Add / Edit
 ![Add Project](media/demo/demo_add.png)
 
-### Outline
+### `🌲` Outline
 ![Outline View](media/demo/demo_outline.png)
 
 ## Quick Start
@@ -52,9 +52,9 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 
 ## Documentation
 
-- [User Guide](docs/user-guide.md)
-- [Commands](docs/commands.md)
-- [Development](docs/development.md)
+- `📘` [User Guide](docs/user-guide.md)
+- `⌨️` [Commands](docs/commands.md)
+- `🧪` [Development](docs/development.md)
 
 ## Main Commands
 
