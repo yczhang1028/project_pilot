@@ -1,330 +1,112 @@
 # Project Pilot
 
-A modern, powerful project manager for Visual Studio Code that supports local folders, workspace files, and SSH remote projects with a beautiful React-based interface.
-## 📦 Installation
+Launch local folders, workspace files, and SSH projects from one modern command deck.
 
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/yczhang1028.project-pilot?label=VS%20Code%20Marketplace&logo=visual-studio-code)](https://marketplace.visualstudio.com/items?itemName=yczhang1028.project-pilot)
 [![Open VSX Registry](https://img.shields.io/open-vsx/v/yczhang1028/project-pilot?label=Open%20VSX%20Registry&logo=eclipse-ide)](https://open-vsx.org/extension/yczhang1028/project-pilot)
 
-**Install from VS Code Marketplace:**
-- [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=yczhang1028.project-pilot)
-
-**Install from Open VSX Registry (for Cursor and other editors)**
-- [Open VSX Registry](https://open-vsx.org/extension/yczhang1028/project-pilot)
-
 ![Project Pilot Main Interface](media/demo/demo_manager.png)
 
-*Project Pilot's main interface showing projects in grouped view with customizable colors and tags*
+## Why Project Pilot
 
-## ✨ Features
+- One place for `local`, `.code-workspace`, `ssh`, and `ssh-workspace` targets
+- Adaptive `Grid`, `List`, and `Mini` layouts for sidebars and fullscreen
+- A stronger `Outline` with `By Group`, `By Target`, `By Type`, and `Flat`
+- Portable local JSON config with import, export, backup, and restore
+- A refined 2.0 glass-style UI with cleaner controls and unified modals
 
-### 🎯 Core Functionality
-- **Local Project Management**: Add and manage local folder projects
-- **Workspace File Support**: Import and manage `.code-workspace` files
-- **SSH Remote Projects**: Connect to and manage remote projects via SSH
-- **Modern React UI**: Beautiful, responsive interface with Grid, List, and Mini views
-- **Smart Search**: Search by name, description, path, or tags
-- **Project Cards**: Customizable project cards with colors, icons, and tags
+## New In 2.0
 
-### 🛠️ Advanced Features
-- **Auto-tag Detection**: Automatically detects project types and suggests relevant tags
-- **Configuration Management**: Import/export configurations with validation and backup
-- **Cross-platform Support**: Works seamlessly on Windows, macOS, and Linux
-- **Backup System**: Automatic backups with configurable retention
-- **SSH Connection Testing**: Test SSH connections before opening projects
-- **Project Descriptions**: Add detailed descriptions with hover tooltips
+- Modern glass-inspired interface refresh
+- Better adaptive layouts for sidebars and fullscreen
+- Favorites and recent sections in Outline
+- Richer Outline context actions
+- Cleaner command palette with less noise
+- Proper overlay Add/Edit modals
 
-### 🎨 User Experience
-- **Triple View Modes**: Switch between Grid, List, and ultra-compact Mini views in Manager
-- **Mini View Mode**: Ultra-compact 100x100px icon grid with hover actions for maximum density
-- **Collapsible Controls**: Clean interface with expandable Options panel for advanced settings
-- **Enhanced Search**: Search with clear button and real-time filtering
-- **Modal Improvements**: Scrollable modals with ESC key support and better UX
-- **Smart Filtering**: Filter by tags, project types, and search terms with improved UI
-- **Clickable Icons**: Direct project opening from list view icons
-- **Keyboard Shortcuts**: Quick access to common actions
-- **Hover Tooltips**: Rich information display on hover with detailed project info
-- **Theme Integration**: Full VSCode theme support for seamless experience
+![Project Pilot Overview](media/demo/demo.png)
 
-## 🚀 Quick Start
+## Screenshots
 
-### Installation
-1. Install the extension from the VS Code marketplace
-2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-3. Run `Project Pilot: Show Manager` to open the main interface
-4. Or click the Project Pilot icon in the Activity Bar (left sidebar)
+### Grid
+![Grid View](media/demo/demo_grid.png)
 
-### First Steps
-1. **Add your first project**: Click the `+ Add` button or use `Ctrl+P Ctrl+L`
-2. **Customize your project**: Add descriptions, tags, and custom colors
-3. **Organize with groups**: Create groups like "Work", "Personal", "Learning"
-4. **Switch views**: Toggle between Grid/List/Mini in Manager and tree/flat in Outline
+### List
+![List View](media/demo/demo_list.png)
 
-### Adding Projects
+### Mini
+![Mini View](media/demo/demo_mini.png)
 
-![Adding New Projects](media/demo/demo_add.png)
+### Add / Edit
+![Add Project](media/demo/demo_add.png)
 
-*Easy project creation with multiple options and smart defaults*
-
-#### Local Folders
-- **Command**: `Project Pilot: Add Local Folder`
-- **Shortcut**: `Ctrl+P Ctrl+L` / `Cmd+P Cmd+L`
-- Select any folder on your system to add as a project
-
-#### Current Folder
-- **Command**: `Project Pilot: Add Current Folder`
-- **Shortcut**: `Ctrl+P Ctrl+C` / `Cmd+P Cmd+C`
-- Add the currently open workspace folder as a project
-
-#### Workspace Files
-- **Command**: `Project Pilot: Add Workspace File`
-- Select any `.code-workspace` file to add as a project
-
-#### SSH Remote Projects
-- **Command**: `Project Pilot: Add SSH Remote`
-- Enter SSH connection string in format: `user@hostname:/path` or `user@hostname:C:/path`
-- Supports vscode-remote URI format
-
-### Managing Projects
-
-#### Project Cards
-Each project is displayed as a customizable card with:
-- **Name**: Click to edit inline
-- **Description**: Add detailed project descriptions
-- **Path**: File system or SSH path
-- **Type**: Local, Workspace, or SSH
-- **Color**: Custom color coding
-- **Icon**: Upload custom icons (converted to Base64)
-- **Tags**: Organize with custom tags
-
-#### View Modes
-
-The Manager supports three distinct view modes:
-
-- **Grid View**: Card-based layout with project thumbnails and full details
-- **List View**: Compact horizontal layout with quick access to all information  
-- **Mini View**: Ultra-compact icon grid (100x100px) perfect for managing many projects
-  - Fixed-size icons with project names
-  - Hover to reveal action buttons
-  - Maximum density for large project collections
-- **Toggle**: Switch views using the toolbar buttons
-
+### Outline
 ![Outline View](media/demo/demo_outline.png)
 
-*Outline view with tree structure showing grouped projects*
+## Quick Start
 
-### Interface Views
+1. Install the extension from the marketplace or Open VSX.
+2. Open the Command Palette.
+3. Run `Project Pilot: Show Manager`.
+4. Add your first project with `+ Add` or `Project Pilot: Add Local Folder`.
 
-Project Pilot provides multiple ways to view and organize your projects:
+## Main Features
 
-#### Manager View
-![Manager Interface](media/demo/demo_manager.png)
-- **Grid View**: Visual card-based layout with project previews
-- **List View**: Compact list with detailed project information
-- **Grouped Display**: Organize projects by custom groups
-- **Search & Filter**: Find projects quickly by name, tags, or groups
+### Manager
+- Responsive manager UI with `Grid`, `List`, and `Mini` views
+- Search by name, path, description, and tags
+- Group projects visually and customize colors, icons, and tags
+- Unified Add/Edit modal with better overlay behavior
 
-#### Outline View  
-![Outline Tree View](media/demo/demo_outline.png)
-- **Tree Structure**: Hierarchical display of grouped projects
-- **Flat List**: Simple list view of all projects
-- **Quick Access**: Click any project to open directly
-- **Toggle Views**: Switch between tree and list modes
+### Outline
+- Cycle between `By Group`, `By Target`, `By Type`, and `Flat`
+- Favorites and recent sections surface important projects automatically
+- Right-click actions for copy path, move group, favorite toggle, delete, and SSH testing
 
-#### Search & Filter
-- **Global Search**: Search across names, descriptions, paths, and tags
-- **Tag Filter**: Filter by specific tags
-- **Sort Options**: Sort by name, type, or recent additions
+### SSH Support
+- Supports `user@hostname:/path/to/project`
+- Supports Windows-style remote paths like `user@hostname:C:/path/to/project`
+- Supports `vscode-remote://ssh-remote+hostname/path`
+- Built-in SSH connection testing before opening
 
-## ⚙️ Configuration
+### Configuration
+- Stored locally on your machine
+- Import, export, backup, restore, and JSON editing workflows
+- Works across VS Code, Cursor, and similar editors without remote installation
 
-Access settings via `File > Preferences > Settings > Project Pilot`:
-
-- **Default View**: Set default view mode (grid/list/mini)
-- **Auto Backup**: Enable automatic configuration backups
-- **Max Backups**: Number of backup files to retain (1-20)
-- **Show Type Icons**: Display type icons in tree view
-- **Auto Detect Tags**: Automatically suggest tags for new projects
-
-## 🔧 Commands
+## Main Commands
 
 | Command | Description | Shortcut |
 |---------|-------------|----------|
-| `Project Pilot: Show Manager` | Open main interface | `Ctrl+P Ctrl+P` |
-| `Project Pilot: Add Local Folder` | Add local project | `Ctrl+P Ctrl+L` |
-| `Project Pilot: Add Current Folder` | Add current workspace | `Ctrl+P Ctrl+C` |
-| `Project Pilot: Toggle Outline View` | Switch outline tree/list view | - |
-| `Project Pilot: Add Workspace File` | Add workspace file | - |
-| `Project Pilot: Add SSH Remote` | Add SSH project | - |
-| `Project Pilot: Import Configuration` | Import config file | - |
-| `Project Pilot: Export Configuration` | Export config file | - |
-| `Project Pilot: Create Backup` | Manual backup creation | - |
-| `Project Pilot: Restore Backup` | Restore from backup | - |
-| `Project Pilot: Test SSH Connection` | Test SSH connections | - |
-| `Project Pilot: Show Configuration Path` | Show config location | - |
+| `Project Pilot: Show Manager` | Open the main manager | `Ctrl+P Ctrl+P` |
+| `Project Pilot: Open Fullscreen View` | Open the fullscreen manager | `Ctrl+P Ctrl+F` |
+| `Project Pilot: Add Local Folder` | Add a local folder | `Ctrl+P Ctrl+L` |
+| `Project Pilot: Add Current Folder` | Add the currently open folder | `Ctrl+P Ctrl+C` |
+| `Project Pilot: Add Workspace File` | Add a `.code-workspace` file | - |
+| `Project Pilot: Add SSH Remote` | Add an SSH project | - |
+| `Project Pilot: Add SSH Workspace` | Add a remote workspace file | - |
+| `Project Pilot: Cycle Outline Mode` | Cycle Outline browsing modes | - |
+| `Project Pilot: Sync Configuration` | Import, export, replace, or edit config | - |
+| `Project Pilot: Test SSH Connection` | Validate SSH project paths | - |
 
-## 📁 Configuration Files
+## Configuration File
 
-### Location
-Configuration files are stored locally in VS Code's global storage on your machine:
-- **Windows**: `%APPDATA%/Code/User/globalStorage/project-pilot/data/projects.json`
-- **macOS**: `~/Library/Application Support/Code/User/globalStorage/project-pilot/data/projects.json`
-- **Linux**: `~/.config/Code/User/globalStorage/project-pilot/data/projects.json`
+Project data is stored locally in:
 
-> **💡 Note**: All project configurations (including SSH remote projects) are stored locally. This means you have a unified project list regardless of which remote servers you connect to.
+- Windows: `%APPDATA%/Code/User/globalStorage/project-pilot/data/projects.json`
+- macOS: `~/Library/Application Support/Code/User/globalStorage/project-pilot/data/projects.json`
+- Linux: `~/.config/Code/User/globalStorage/project-pilot/data/projects.json`
 
-### Format
-```json
-{
-  "projects": [
-    {
-      "id": "unique-id",
-      "name": "Project Name",
-      "description": "Project description",
-      "path": "/path/to/project",
-      "type": "local",
-      "color": "#3b82f6",
-      "tags": ["react", "frontend"],
-      "icon": "data:image/png;base64,..."
-    }
-  ],
-  "metadata": {
-    "version": "1.0.0",
-    "exportDate": "2024-01-01T00:00:00.000Z",
-    "projectCount": 1
-  }
-}
-```
+All project data stays local, including SSH entries.
 
-## 🌐 SSH Remote Projects
+## Development
 
-> **📍 Important**: Project Pilot runs locally on your machine. Even when managing SSH remote projects, all project configurations are stored locally. You don't need to install the extension on remote servers - just configure SSH access from your local machine.
-
-### Supported Formats
-- **Standard SSH**: `user@hostname:/path/to/project`
-- **Windows Remote Path**: `user@hostname:C:/path/to/project`
-- **VS Code Remote URI**: `vscode-remote://ssh-remote+hostname/path`
-
-### Requirements
-- VS Code Remote-SSH extension installed
-- SSH access configured on your system
-- SSH keys or password authentication set up
-
-### Testing Connections
-Use `Project Pilot: Test SSH Connection` to validate SSH project configurations before opening.
-
-## 🔄 Import/Export
-
-### Exporting
-1. Run `Project Pilot: Export Configuration`
-2. Choose save location
-3. Configuration saved with metadata and validation
-
-### Importing
-1. Run `Project Pilot: Import Configuration`
-2. Select JSON configuration file
-3. Automatic validation and backup creation
-4. Projects merged with existing configuration
-
-### Backup Management
-- Automatic backups created before imports
-- Configurable retention (1-20 files)
-- Restore from any backup via command palette
-- Backups include timestamp and metadata
-
-## 🎨 Customization
-
-### Project Colors
-Choose from color picker or use hex values:
-- **Local Projects**: Default blue (#3b82f6)
-- **Workspace Files**: Default green (#10b981)
-- **SSH Projects**: Default amber (#f59e0b)
-
-### Icons
-- Upload any image file (PNG, JPG, SVG)
-- Automatically converted to Base64 for portability
-- Displayed in both grid and list views
-
-### Tags
-- Add multiple tags per project
-- Auto-detection based on project contents
-- Filter and search by tags
-- Visual tag display with counts
-
-## 🛠️ Development
-
-### Project Structure
-```
-project-pilot/
-├── src/                    # Extension source code
-│   ├── extension.ts       # Main extension entry point
-│   ├── store.ts          # Configuration management
-│   ├── managerViewProvider.ts  # Webview provider
-│   └── outlineTreeProvider.ts  # Tree view provider
-├── webview-ui/           # React frontend
-│   ├── src/
-│   │   └── ui/
-│   │       └── App.tsx   # Main React component
-│   └── package.json      # Frontend dependencies
-├── package.json          # Extension manifest
-└── README.md            # Documentation
-```
-
-### Building
 ```bash
-npm run build          # Build both extension and webview
-npm run build:ext      # Build extension only
-npm run build:webview  # Build webview only
-npm run watch          # Watch mode for development
-```
-
-### Quick Start for Development
-1. Install dependencies and build:
-```powershell
-npm install
 npm run build
-```
-
-2. Launch the extension in a new VS Code window via Run and Debug: "Run Extension"
-
-3. For webview UI development:
-```powershell
-cd webview-ui
-npm install
-npm run dev
-```
-
-Then rebuild from the root to update the packaged assets:
-```powershell
+npm run build:ext
 npm run build:webview
 ```
 
-### Screenshots
-- **Manager View**: `media/demo/demo_manager.png` - Main interface with grouped projects
-- **Add Project**: `media/demo/demo_add.png` - Project creation modal with smart defaults  
-- **Outline View**: `media/demo/demo_outline.png` - Tree view with project hierarchy
-- **Overview**: `media/demo/demo.png` - General interface overview
+## License
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly on all platforms
-5. Submit a pull request
-
-## 📄 License
-
-MIT License - see LICENSE file for details
-
-## 🐛 Issues & Support
-
-Report issues on GitHub with:
-- VS Code version
-- Operating system
-- Steps to reproduce
-- Error messages (if any)
-
----
-
-**Enjoy managing your projects with Project Pilot!** 🚀
+MIT License - see `LICENSE`.

@@ -1,8 +1,8 @@
 {
   "name": "project-pilot",
   "displayName": "Project Pilot",
-  "description": "Modern project manager for local, workspace, and SSH projects with React UI and portable JSON config. Runs locally to manage all your projects from one place.",
-  "version": "1.0.3",
+  "description": "Launch local folders, workspace files, and SSH projects from one modern command deck.",
+  "version": "2.0.0",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
@@ -334,6 +334,14 @@
           "when": "true"
         },
         {
+          "command": "projectPilot.addCurrentFolder",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
+          "command": "projectPilot.scanWorkspaceFolders",
+          "when": "workspaceFolderCount > 0"
+        },
+        {
           "command": "projectPilot.addLocalProject",
           "when": "true"
         },
@@ -350,31 +358,7 @@
           "when": "true"
         },
         {
-          "command": "projectPilot.addCurrentFolder",
-          "when": "workspaceFolderCount > 0"
-        },
-        {
-          "command": "projectPilot.scanWorkspaceFolders",
-          "when": "workspaceFolderCount > 0"
-        },
-        {
-          "command": "projectPilot.importConfig",
-          "when": "true"
-        },
-        {
-          "command": "projectPilot.exportConfig",
-          "when": "true"
-        },
-        {
-          "command": "projectPilot.showConfigPath",
-          "when": "true"
-        },
-        {
-          "command": "projectPilot.restoreBackup",
-          "when": "true"
-        },
-        {
-          "command": "projectPilot.createBackup",
+          "command": "projectPilot.syncConfig",
           "when": "true"
         },
         {
@@ -382,8 +366,76 @@
           "when": "true"
         },
         {
-          "command": "projectPilot.openConfigFile",
+          "command": "projectPilot.toggleOutlineView",
           "when": "true"
+        },
+        {
+          "command": "projectPilot.openNewWindow",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.openProject",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.importConfig",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.exportConfig",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.showConfigPath",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.restoreBackup",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.createBackup",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.openConfigFile",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.refreshOutline",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.addToFavorites",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.removeFromFavorites",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.copyProjectPath",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.copyProjectName",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.deleteProjectFromOutline",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.moveProjectToGroup",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.renameOutlineGroup",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.testSshConnectionFromOutline",
+          "when": "false"
         }
       ]
     },

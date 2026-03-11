@@ -8,4 +8,8 @@
 - Bumped release version to `1.0.2` for publishing
 - Enhanced the manager UI with adaptive glass-style visuals and more responsive card layouts
 - Upgraded outline with richer modes, favorites/recent sections, and direct project actions
+- Fixed the edit modal so it renders as a real overlay instead of being clipped inside cards
 - Bumped release version to `1.0.3` for publishing
+- Added a sanitized demo `projects.demo.json` for screenshots without exposing personal or company project data
+- Reorganized README and CHANGELOG around the new `2.0.0` release story
+- Bumped the extension version to `2.0.0` for the first major modern glass UI release

@@ -2,11 +2,38 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [2.0.0] - 2026-03-10
+
+### Major Release
+Project Pilot 2.0 marks the first major release built around the new modern glassmorphism design language and a more refined day-to-day workflow. This version focuses on visual polish, adaptive layout behavior, cleaner command surfaces, and a much more capable Outline experience.
+
+### ✨ New Experience
+- **Modern Glass UI**: Introduced a lighter, more futuristic visual system with glass-style panels, glow borders, floating accents, and better visual hierarchy across the manager.
+- **Adaptive Layout System**: Manager cards, controls, and density now respond more gracefully to narrow sidebars, editor columns, and fullscreen layouts.
+- **Unified Modal Styling**: Add/Edit project dialogs now match the new visual language and render as true overlay modals above the full interface.
+
+### 🚀 Productivity Upgrades
+- **Richer Outline Modes**: Outline can now cycle through `By Group`, `By Target`, `By Type`, and `Flat` modes.
+- **Favorites + Recent Sections**: High-signal projects surface automatically in Outline for faster access.
+- **Outline Context Actions**: Added direct actions for copy path, copy name, move group, rename group, delete, favorite toggle, and SSH testing from the tree view.
+- **Persistent Outline State**: Expansion state and outline browsing mode now behave more like a real working sidebar instead of a temporary list.
+
+### 🔧 Workflow Improvements
+- **Command Palette Cleanup**: Reduced noise by focusing the command palette on primary user-facing actions while keeping contextual and maintenance actions available where they are actually used.
+- **Better SSH UX**: Continued support for Windows-style remote paths such as `user@hostname:C:/project`, with clearer validation and help text.
+- **Demo-ready Data Workflow**: Added a sanitized demo project configuration for screenshots and marketing materials without exposing personal or company content.
+
+### 🐛 Fixes
+- **Modal Clipping Fix**: Fixed edit dialogs being visually trapped inside cards after the new glass-style card treatment.
+- **Overlay Rendering**: Ensured dialogs always render above the full webview via a proper portal-based overlay.
+
 ## [1.0.3] - 2026-03-10
 
 ### 🔧 Patch Updates
 - **Adaptive Glass UI Refresh**: Refined the manager UI with a more responsive layout, adaptive density, and a lighter glassmorphism-inspired visual treatment.
 - **Outline Productivity Upgrade**: Added richer outline modes, favorites and recent sections, persistent expansion state, and more direct project actions from the tree view.
+- **Modal Overlay Fix**: Fixed edit dialogs so they render above the full interface instead of being clipped inside project cards.
+- **Command Palette Cleanup**: Reduced noise by keeping primary user-facing commands visible while moving context-specific and maintenance actions out of the main command palette flow.
 
 ## [1.0.2] - 2026-03-10
 

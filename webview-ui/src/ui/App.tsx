@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
 type ProjectItem = { 
@@ -1580,6 +1581,32 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     }
   };
 
+  const modalPanelBackground = toAlpha(theme.primaryBackground, 0.82);
+  const modalCardBackground = toAlpha(theme.secondaryBackground, 0.68);
+  const modalInputStyle = {
+    backgroundColor: modalCardBackground,
+    color: theme.inputForeground,
+    borderColor: toAlpha(theme.inputBorder, 0.64),
+    '--tw-ring-color': theme.focusBorder,
+    ['--input-bg' as string]: modalCardBackground,
+    ['--input-border' as string]: toAlpha(theme.inputBorder, 0.64)
+  } as React.CSSProperties;
+  const modalSecondaryButtonStyle = {
+    backgroundColor: modalCardBackground,
+    color: theme.inputForeground,
+    borderColor: toAlpha(theme.inputBorder, 0.62),
+    ['--button-bg' as string]: modalCardBackground,
+    ['--button-border' as string]: toAlpha(theme.inputBorder, 0.62)
+  } as React.CSSProperties;
+  const modalPrimaryButtonStyle = {
+    backgroundColor: theme.buttonBackground,
+    color: theme.buttonForeground,
+    borderColor: toAlpha(theme.buttonBackground, 0.58),
+    ['--button-bg' as string]: theme.buttonBackground,
+    ['--button-border' as string]: toAlpha(theme.buttonBackground, 0.58),
+    boxShadow: `0 10px 28px ${toAlpha(theme.focusBorder, 0.24)}`
+  } as React.CSSProperties;
+
   const handleCreateGroup = () => {
     const trimmedName = newGroupName.trim();
     if (trimmedName) {
@@ -1623,9 +1650,13 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     });
   };
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" 
+      className="fixed inset-0 flex items-center justify-center z-[9999] p-3 sm:p-4" 
+      style={{
+        background: 'radial-gradient(circle at top, rgba(59,130,246,0.14), transparent 30%), rgba(3, 7, 18, 0.56)',
+        backdropFilter: 'blur(18px)'
+      }}
       onMouseDown={(e) => {
         // 只有直接点击背景时才关闭，不包括拖拽事件
         if (e.target === e.currentTarget && !isDragging) {
@@ -1636,33 +1667,50 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       onMouseUp={() => setIsDragging(false)}
     >
       <div 
-        className="rounded-lg max-h-[90vh] overflow-y-auto border"
+        className="glass-panel glow-border rounded-3xl max-h-[90vh] overflow-y-auto border"
         style={{ 
-          backgroundColor: theme.primaryBackground,
-          borderColor: theme.border,
-          width: '60vw',
-          minWidth: '400px',
-          maxWidth: '700px'
+          backgroundColor: modalPanelBackground,
+          borderColor: toAlpha(theme.border, 0.52),
+          width: 'min(760px, 92vw)',
+          minWidth: '320px',
+          maxWidth: '760px',
+          ['--panel-bg' as string]: modalPanelBackground,
+          ['--panel-border' as string]: toAlpha(theme.border, 0.52),
+          ['--glow-color' as string]: toAlpha(theme.focusBorder, 0.22)
         }}
         onClick={e => e.stopPropagation()}
         onMouseDown={e => e.stopPropagation()}
       >
-        <div className="p-6">
-        <h3 className="text-lg font-medium mb-4 text-left" style={{ color: theme.foreground }}>
-          {isNewProject ? `Add ${project.type} Project` : 'Edit Project'}
-        </h3>
-        
-        <div className="space-y-4">
+        <div className="relative p-5 sm:p-6">
+        <div className="mb-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-xl font-semibold text-left tracking-tight" style={{ color: theme.foreground }}>
+                {isNewProject ? `Add ${project.type} Project` : 'Edit Project'}
+              </h3>
+              <p className="mt-1 text-sm" style={{ color: toAlpha(theme.foreground, 0.72) }}>
+                Configure project metadata, paths, groups, tags, and visual identity.
+              </p>
+            </div>
+            <button
+              className="soft-button w-10 h-10 rounded-2xl inline-flex items-center justify-center transition-all"
+              style={modalSecondaryButtonStyle}
+              onClick={onCancel}
+              title="Close"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="glass-card rounded-2xl p-4 sm:p-5 space-y-4" style={{ backgroundColor: modalCardBackground }}>
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Project Name</label>
             <input 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
-              style={{
-                backgroundColor: theme.inputBackground,
-                color: theme.inputForeground,
-                borderColor: theme.inputBorder,
-                '--tw-ring-color': theme.focusBorder
-              } as React.CSSProperties}
+              className="soft-input w-full px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+              style={modalInputStyle}
               value={editedProject.name}
               onChange={e => setEditedProject({ ...editedProject, name: e.target.value })}
             />
@@ -1671,13 +1719,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Description</label>
             <textarea 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent resize-none"
-              style={{
-                backgroundColor: theme.inputBackground,
-                color: theme.inputForeground,
-                borderColor: theme.inputBorder,
-                '--tw-ring-color': theme.focusBorder
-              } as React.CSSProperties}
+              className="soft-input w-full px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent resize-none"
+              style={modalInputStyle}
               rows={2}
               placeholder="Brief description of this project..."
               value={editedProject.description || ''}
@@ -1687,27 +1730,18 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Path</label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
               <input 
-                className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
-                style={{
-                  backgroundColor: theme.inputBackground,
-                  color: theme.inputForeground,
-                  borderColor: theme.inputBorder,
-                  '--tw-ring-color': theme.focusBorder
-                } as React.CSSProperties}
+                className="soft-input flex-1 min-w-0 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+                style={modalInputStyle}
                 placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path or user@hostname:C:/path' : editedProject.type === 'ssh-workspace' ? 'user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
                 value={editedProject.path}
                 onChange={e => setEditedProject({ ...editedProject, path: e.target.value })}
               />
               {editedProject.type === 'local' && (
                 <button
-                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder
-                  }}
+                  className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
+                  style={modalSecondaryButtonStyle}
                   onClick={() => vscode.postMessage({ type: 'browseFolder', payload: { currentPath: editedProject.path } })}
                   title="Browse for folder"
                 >
@@ -1716,12 +1750,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               )}
               {editedProject.type === 'workspace' && (
                 <button
-                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder
-                  }}
+                  className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
+                  style={modalSecondaryButtonStyle}
                   onClick={() => vscode.postMessage({ type: 'browseWorkspace', payload: { currentPath: editedProject.path } })}
                   title="Browse for workspace file"
                 >
@@ -1729,13 +1759,15 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                 </button>
               )}
               {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
-                <div className="flex gap-1">
+                <div className="flex gap-2">
                   <button
-                    className="px-3 py-2 border rounded-lg transition-colors text-sm"
+                    className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
                     style={{
-                      backgroundColor: theme.inputBackground,
+                      backgroundColor: modalCardBackground,
                       color: isTestingConnection ? '#f59e0b' : connectionTestResult === 'success' ? '#10b981' : connectionTestResult === 'error' ? '#ef4444' : theme.inputForeground,
-                      borderColor: isTestingConnection ? '#f59e0b' : connectionTestResult === 'success' ? '#10b981' : connectionTestResult === 'error' ? '#ef4444' : theme.inputBorder
+                      borderColor: isTestingConnection ? '#f59e0b' : connectionTestResult === 'success' ? '#10b981' : connectionTestResult === 'error' ? '#ef4444' : toAlpha(theme.inputBorder, 0.62),
+                      ['--button-bg' as string]: modalCardBackground,
+                      ['--button-border' as string]: isTestingConnection ? '#f59e0b' : connectionTestResult === 'success' ? '#10b981' : connectionTestResult === 'error' ? '#ef4444' : toAlpha(theme.inputBorder, 0.62)
                     }}
                     onClick={testSshConnection}
                     disabled={isTestingConnection || !editedProject.path.trim()}
@@ -1745,11 +1777,13 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                     {isTestingConnection ? ' Testing...' : ' Test'}
                   </button>
                   <button
-                    className="px-2 py-2 border rounded-lg transition-colors text-sm"
+                    className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
                     style={{
-                      backgroundColor: remoteStatus?.isRemote ? theme.inputBackground : theme.inputBackground,
+                      backgroundColor: modalCardBackground,
                       color: remoteStatus?.isRemote ? '#10b981' : theme.inputForeground,
-                      borderColor: remoteStatus?.isRemote ? '#10b981' : theme.inputBorder,
+                      borderColor: remoteStatus?.isRemote ? '#10b981' : toAlpha(theme.inputBorder, 0.62),
+                      ['--button-bg' as string]: modalCardBackground,
+                      ['--button-border' as string]: remoteStatus?.isRemote ? '#10b981' : toAlpha(theme.inputBorder, 0.62),
                       opacity: remoteStatus?.isRemote ? 1 : 0.6
                     }}
                     onClick={() => {
@@ -1776,7 +1810,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               )}
             </div>
             {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
-              <div className="text-xs mt-1" style={{ color: theme.foreground, opacity: 0.6 }}>
+              <div className="text-xs mt-2 leading-5" style={{ color: theme.foreground, opacity: 0.7 }}>
                 Format: user@hostname:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''} or user@hostname:C:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''}
                 {remoteStatus?.isRemote && (
                   <span style={{ color: '#10b981' }}> • Connected to {remoteStatus.sshHost || 'remote'} - click 📂 to browse</span>
@@ -1787,8 +1821,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               </div>
             )}
             {connectionTestResult && (
-              <div className={`text-xs mt-1`} style={{ 
-                color: connectionTestResult === 'success' ? '#10b981' : '#ef4444'
+              <div className="glass-card rounded-xl px-3 py-2 text-xs mt-2" style={{ 
+                color: connectionTestResult === 'success' ? '#10b981' : '#ef4444',
+                backgroundColor: toAlpha(connectionTestResult === 'success' ? '#10b981' : '#ef4444', 0.08),
+                borderColor: toAlpha(connectionTestResult === 'success' ? '#10b981' : '#ef4444', 0.2)
               }}>
                 {connectionTestResult === 'success' ? '✅' : '❌'} {testMessage || (connectionTestResult === 'success' ? 'Connection format appears valid' : 'Connection test failed')}
               </div>
@@ -1798,13 +1834,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Type</label>
             <select 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
-              style={{
-                backgroundColor: theme.inputBackground,
-                color: theme.inputForeground,
-                borderColor: theme.inputBorder,
-                '--tw-ring-color': theme.focusBorder
-              } as React.CSSProperties}
+              className="soft-input w-full px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+              style={modalInputStyle}
               value={editedProject.type}
               onChange={e => setEditedProject({ ...editedProject, type: e.target.value as ProjectType })}
             >
@@ -1818,15 +1849,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Group</label>
             {isCreatingNewGroup ? (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap sm:flex-nowrap">
                 <input 
-                  className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder,
-                    '--tw-ring-color': theme.focusBorder
-                  } as React.CSSProperties}
+                  className="soft-input flex-1 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+                  style={modalInputStyle}
                   placeholder="Enter new group name"
                   value={newGroupName}
                   onChange={e => setNewGroupName(e.target.value)}
@@ -1842,39 +1868,26 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   autoFocus
                 />
                 <button
-                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.buttonBackground,
-                    color: theme.buttonForeground,
-                    borderColor: theme.buttonBackground
-                  }}
+                  className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
+                  style={modalPrimaryButtonStyle}
                   onClick={handleCreateGroup}
                   disabled={!newGroupName.trim()}
                 >
                   ✓
                 </button>
                 <button
-                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder
-                  }}
+                  className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
+                  style={modalSecondaryButtonStyle}
                   onClick={handleCancelCreateGroup}
                 >
                   ✕
                 </button>
               </div>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap sm:flex-nowrap">
                 <select 
-                  className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder,
-                    '--tw-ring-color': theme.focusBorder
-                  } as React.CSSProperties}
+                  className="soft-input flex-1 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+                  style={modalInputStyle}
                   value={editedProject.group || ''}
                   onChange={e => setEditedProject({ ...editedProject, group: e.target.value || undefined })}
                 >
@@ -1892,12 +1905,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                   ))}
                 </select>
                 <button
-                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder
-                  }}
+                  className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
+                  style={modalSecondaryButtonStyle}
                   onClick={() => setIsCreatingNewGroup(true)}
                   title="Create new group"
                 >
@@ -1909,16 +1918,11 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           
           <div>
             <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Tags (comma separated)</label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
               <input 
                 type="text"
-                className="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent"
-                style={{
-                  backgroundColor: theme.inputBackground,
-                  color: theme.inputForeground,
-                  borderColor: theme.inputBorder,
-                  '--tw-ring-color': theme.focusBorder
-                } as React.CSSProperties}
+                className="soft-input flex-1 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+                style={modalInputStyle}
                 placeholder="react, frontend, web"
                 value={tagsInput}
                 onChange={e => {
@@ -1936,12 +1940,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               />
               {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
                 <button
-                  className="px-3 py-2 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder
-                  }}
+                  className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm"
+                  style={modalSecondaryButtonStyle}
                   onClick={autoAddHostTag}
                   title="Auto-add hostname as tag"
                 >
@@ -1960,18 +1960,14 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               <div className="flex gap-2">
                 <input 
                   type="color" 
-                  className="flex-1 h-10 border rounded-lg"
-                  style={{ borderColor: theme.inputBorder }}
+                  className="soft-input flex-1 h-11 border rounded-xl p-1"
+                  style={modalInputStyle}
                   value={editedProject.color ?? '#999999'}
                   onChange={e => setEditedProject({ ...editedProject, color: e.target.value })}
                 />
                 <button 
-                  className="px-3 h-10 border rounded-lg transition-colors text-sm"
-                  style={{
-                    backgroundColor: theme.inputBackground,
-                    color: theme.inputForeground,
-                    borderColor: theme.inputBorder
-                  }}
+                  className="soft-button px-3 h-11 border rounded-xl transition-colors text-sm"
+                  style={modalSecondaryButtonStyle}
                   onClick={() => setEditedProject({ ...editedProject, color: getRandomColor() })}
                   title="Random color"
                 >
@@ -1998,14 +1994,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
             <div className="flex-1">
               <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Icon</label>
               <button 
-                className="w-full h-10 border rounded-lg transition-colors"
-                style={{
-                  backgroundColor: theme.inputBackground,
-                  color: theme.inputForeground,
-                  borderColor: theme.inputBorder
-                }}
+                className="soft-button w-full h-11 border rounded-xl transition-colors"
+                style={modalSecondaryButtonStyle}
                 onMouseOver={(e) => e.currentTarget.style.backgroundColor = theme.listHoverBackground}
-                onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = modalCardBackground}
                 onClick={() => fileRef.current?.click()}
               >
                 {editedProject.icon ? 'Change Icon' : 'Upload Icon'}
@@ -2026,13 +2018,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           </div>
         </div>
         
-        <div className="flex gap-3 mt-6">
+        <div className="flex gap-3 mt-6 flex-col-reverse sm:flex-row">
           <button
-            className="flex-1 px-4 py-2 rounded-lg transition-colors"
-            style={{
-              backgroundColor: theme.buttonBackground,
-              color: theme.buttonForeground
-            }}
+            className="soft-button flex-1 px-4 py-3 rounded-2xl transition-colors font-medium"
+            style={modalPrimaryButtonStyle}
             onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
             onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
             onClick={() => {
@@ -2047,14 +2036,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
             {isNewProject ? 'Create Project' : 'Save Changes'}
           </button>
           <button
-            className="flex-1 px-4 py-2 border rounded-lg transition-colors"
-            style={{
-              backgroundColor: theme.inputBackground,
-              color: theme.inputForeground,
-              borderColor: theme.inputBorder
-            }}
+            className="soft-button flex-1 px-4 py-3 border rounded-2xl transition-colors"
+            style={modalSecondaryButtonStyle}
             onMouseOver={(e) => e.currentTarget.style.backgroundColor = theme.listHoverBackground}
-            onMouseOut={(e) => e.currentTarget.style.backgroundColor = theme.inputBackground}
+            onMouseOut={(e) => e.currentTarget.style.backgroundColor = modalCardBackground}
             onClick={onCancel}
           >
             Cancel
@@ -2062,7 +2047,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
         </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
