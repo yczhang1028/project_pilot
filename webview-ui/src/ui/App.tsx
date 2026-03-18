@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
@@ -64,6 +64,133 @@ const extractHostnameFromSshPath = (input: string): string | null => {
   } catch {
     return null;
   }
+};
+
+type PathAnalysis = {
+  suggestedType: ProjectType | null;
+  suggestedName?: string;
+  summary: string;
+  detail?: string;
+  severity: 'info' | 'warning' | 'success';
+};
+
+const getSuggestedNameFromPath = (input: string): string => {
+  const trimmed = input.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.startsWith('vscode-remote://ssh-remote+')) {
+    const pathPart = trimmed.replace(/^vscode-remote:\/\/ssh-remote\+[^/]+/, '');
+    const segments = pathPart.split('/').filter(Boolean);
+    const lastSegment = segments[segments.length - 1] || '';
+    return lastSegment.replace(/\.code-workspace$/i, '');
+  }
+
+  const sshPath = parseRawSshPath(trimmed);
+  if (sshPath) {
+    const segments = sshPath.remotePath.replace(/\\/g, '/').split('/').filter(Boolean);
+    const lastSegment = segments[segments.length - 1] || '';
+    return lastSegment.replace(/\.code-workspace$/i, '');
+  }
+
+  const normalized = trimmed.replace(/\\/g, '/');
+  const segments = normalized.split('/').filter(Boolean);
+  const lastSegment = segments[segments.length - 1] || normalized;
+  return lastSegment.replace(/\.code-workspace$/i, '');
+};
+
+const analyzeProjectPath = (input: string, currentType: ProjectType): PathAnalysis | null => {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const sshPath = parseRawSshPath(trimmed);
+  const isWorkspace = /\.code-workspace$/i.test(trimmed);
+  const looksLikeLocalPath =
+    /^[a-zA-Z]:[\\/]/.test(trimmed) ||
+    trimmed.startsWith('/') ||
+    trimmed.startsWith('~/') ||
+    trimmed.includes('\\');
+
+  if (trimmed.startsWith('vscode-remote://ssh-remote+')) {
+    const suggestedType: ProjectType = isWorkspace ? 'ssh-workspace' : 'ssh';
+    return {
+      suggestedType,
+      suggestedName: getSuggestedNameFromPath(trimmed),
+      severity: suggestedType === currentType ? 'success' : 'info',
+      summary: suggestedType === 'ssh-workspace' ? 'Detected VS Code remote SSH workspace path.' : 'Detected VS Code remote SSH project path.',
+      detail: suggestedType === currentType ? 'Current project type already matches the detected path format.' : `Current type is ${currentType}.`
+    };
+  }
+
+  if (sshPath) {
+    const suggestedType: ProjectType = /\.code-workspace$/i.test(sshPath.remotePath) ? 'ssh-workspace' : 'ssh';
+    const isWindowsRemotePath = /^[a-zA-Z]:[\\/]/.test(sshPath.remotePath);
+
+    return {
+      suggestedType,
+      suggestedName: getSuggestedNameFromPath(trimmed),
+      severity: suggestedType === currentType ? 'success' : 'info',
+      summary: suggestedType === 'ssh-workspace'
+        ? 'Detected SSH workspace path.'
+        : 'Detected SSH project path.',
+      detail: isWindowsRemotePath
+        ? `Windows remote path detected on host ${sshPath.hostname}.`
+        : `Remote host detected: ${sshPath.hostname}.`
+    };
+  }
+
+  if (trimmed.includes('@') && !trimmed.startsWith('vscode-remote://')) {
+    return {
+      suggestedType: null,
+      suggestedName: getSuggestedNameFromPath(trimmed),
+      severity: 'warning',
+      summary: 'This looks like an incomplete SSH path.',
+      detail: 'Use formats like user@hostname:/path or user@hostname:C:/path.'
+    };
+  }
+
+  if (isWorkspace) {
+    return {
+      suggestedType: 'workspace',
+      suggestedName: getSuggestedNameFromPath(trimmed),
+      severity: currentType === 'workspace' ? 'success' : 'info',
+      summary: 'Detected local workspace file.',
+      detail: currentType === 'workspace' ? 'Current project type already matches the detected path format.' : `Current type is ${currentType}.`
+    };
+  }
+
+  if (looksLikeLocalPath) {
+    return {
+      suggestedType: 'local',
+      suggestedName: getSuggestedNameFromPath(trimmed),
+      severity: currentType === 'local' ? 'success' : 'info',
+      summary: 'Detected local folder path.',
+      detail: currentType === 'local' ? 'Current project type already matches the detected path format.' : `Current type is ${currentType}.`
+    };
+  }
+
+  return {
+    suggestedType: null,
+    suggestedName: getSuggestedNameFromPath(trimmed),
+    severity: 'warning',
+    summary: 'Path format could not be identified yet.',
+    detail: 'You can continue typing, paste a full path, or use the browse actions.'
+  };
+};
+
+const getProjectTypeLabel = (type: ProjectType): string => {
+  const labels: Record<ProjectType, string> = {
+    local: 'Local Folder',
+    workspace: 'Workspace File',
+    ssh: 'SSH Remote',
+    'ssh-workspace': 'SSH Workspace'
+  };
+
+  return labels[type];
 };
 
 // 调试信息
@@ -1455,6 +1582,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
 }) {
   const isNewProject = !project.id;
   const [editedProject, setEditedProject] = useState<ProjectItem>({ ...project });
+  const [hasManuallyEditedName, setHasManuallyEditedName] = useState(false);
   const [tagsInput, setTagsInput] = useState((project.tags ?? []).join(', '));
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [connectionTestResult, setConnectionTestResult] = useState<'success' | 'error' | null>(null);
@@ -1464,6 +1592,26 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   const [isDragging, setIsDragging] = useState(false);
   const [remoteStatus, setRemoteStatus] = useState<{ isRemote: boolean; sshHost?: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pathAnalysis = useMemo(
+    () => analyzeProjectPath(editedProject.path, editedProject.type),
+    [editedProject.path, editedProject.type]
+  );
+  const applyPathValue = useCallback((nextPath: string) => {
+    const analysis = analyzeProjectPath(nextPath, editedProject.type);
+    setEditedProject(prev => {
+      const nextProject = { ...prev, path: nextPath };
+      if (!hasManuallyEditedName && analysis?.suggestedName) {
+        nextProject.name = analysis.suggestedName;
+      }
+      return nextProject;
+    });
+  }, [editedProject.type, hasManuallyEditedName]);
+  const applySuggestedProjectType = useCallback(() => {
+    if (!pathAnalysis?.suggestedType || pathAnalysis.suggestedType === editedProject.type) {
+      return;
+    }
+    setEditedProject(prev => ({ ...prev, type: pathAnalysis.suggestedType! }));
+  }, [editedProject.type, pathAnalysis]);
 
   // 检查远程状态
   useEffect(() => {
@@ -1488,14 +1636,14 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     const handlePathSelected = (event: any) => {
       const { path, inputType, sshHost } = event.detail;
       if (path) {
-        setEditedProject(prev => ({ ...prev, path }));
+        applyPathValue(path);
         // 如果是文件夹，可以自动设置项目名称
-        if ((inputType === 'folder' || inputType === 'ssh') && !editedProject.name.trim()) {
+        if ((inputType === 'folder' || inputType === 'ssh') && !hasManuallyEditedName) {
           const folderName = path.split(/[/\\:]/).pop() || 'New Project';
           setEditedProject(prev => ({ ...prev, path, name: folderName }));
         }
         // SSH workspace 自动提取名称
-        if (inputType === 'ssh-workspace' && !editedProject.name.trim()) {
+        if (inputType === 'ssh-workspace' && !hasManuallyEditedName) {
           const fileName = path.split(/[/\\:]/).pop()?.replace('.code-workspace', '') || 'SSH Workspace';
           setEditedProject(prev => ({ ...prev, path, name: fileName }));
         }
@@ -1536,7 +1684,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       window.removeEventListener('sshBrowseResult', handleSshBrowseResult);
       window.removeEventListener('remoteStatus', handleRemoteStatus);
     };
-  }, [editedProject, tagsInput]);
+  }, [applyPathValue, editedProject, hasManuallyEditedName, tagsInput]);
 
   // 监听ESC键关闭Modal
   useEffect(() => {
@@ -1652,7 +1800,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
 
   return createPortal(
     <div 
-      className="fixed inset-0 flex items-center justify-center z-[9999] p-3 sm:p-4" 
+      className="fixed inset-0 z-[9999] overflow-y-auto p-3 sm:p-4" 
       style={{
         background: 'radial-gradient(circle at top, rgba(59,130,246,0.14), transparent 30%), rgba(3, 7, 18, 0.56)',
         backdropFilter: 'blur(18px)'
@@ -1666,21 +1814,25 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       onMouseMove={() => setIsDragging(true)}
       onMouseUp={() => setIsDragging(false)}
     >
-      <div 
-        className="glass-panel glow-border rounded-3xl max-h-[90vh] overflow-y-auto border"
-        style={{ 
-          backgroundColor: modalPanelBackground,
-          borderColor: toAlpha(theme.border, 0.52),
-          width: 'min(760px, 92vw)',
-          minWidth: '320px',
-          maxWidth: '760px',
-          ['--panel-bg' as string]: modalPanelBackground,
-          ['--panel-border' as string]: toAlpha(theme.border, 0.52),
-          ['--glow-color' as string]: toAlpha(theme.focusBorder, 0.22)
-        }}
-        onClick={e => e.stopPropagation()}
-        onMouseDown={e => e.stopPropagation()}
-      >
+      <div className="min-h-full flex items-start justify-center py-3 sm:py-8">
+        <div 
+          className="glass-panel glow-border rounded-3xl border"
+          style={{ 
+            backgroundColor: modalPanelBackground,
+            borderColor: toAlpha(theme.border, 0.52),
+            width: 'min(760px, 92vw)',
+            minWidth: '320px',
+            maxWidth: '760px',
+            maxHeight: 'calc(100vh - 2rem)',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            ['--panel-bg' as string]: modalPanelBackground,
+            ['--panel-border' as string]: toAlpha(theme.border, 0.52),
+            ['--glow-color' as string]: toAlpha(theme.focusBorder, 0.22)
+          }}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
+        >
         <div className="relative p-5 sm:p-6">
         <div className="mb-5">
           <div className="flex items-center justify-between gap-4">
@@ -1712,7 +1864,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               className="soft-input w-full px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
               style={modalInputStyle}
               value={editedProject.name}
-              onChange={e => setEditedProject({ ...editedProject, name: e.target.value })}
+              onChange={e => {
+                setHasManuallyEditedName(true);
+                setEditedProject({ ...editedProject, name: e.target.value });
+              }}
             />
           </div>
           
@@ -1736,7 +1891,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                 style={modalInputStyle}
                 placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path or user@hostname:C:/path' : editedProject.type === 'ssh-workspace' ? 'user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
                 value={editedProject.path}
-                onChange={e => setEditedProject({ ...editedProject, path: e.target.value })}
+                onChange={e => applyPathValue(e.target.value)}
               />
               {editedProject.type === 'local' && (
                 <button
@@ -1809,6 +1964,49 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                 </div>
               )}
             </div>
+            {pathAnalysis && (
+              <div
+                className="glass-card rounded-xl px-3 py-2 text-xs mt-2 flex items-start justify-between gap-3"
+                style={{
+                  backgroundColor:
+                    pathAnalysis.severity === 'success'
+                      ? toAlpha('#10b981', 0.08)
+                      : pathAnalysis.severity === 'warning'
+                        ? toAlpha('#f59e0b', 0.08)
+                        : toAlpha(theme.focusBorder, 0.08),
+                  borderColor:
+                    pathAnalysis.severity === 'success'
+                      ? toAlpha('#10b981', 0.2)
+                      : pathAnalysis.severity === 'warning'
+                        ? toAlpha('#f59e0b', 0.2)
+                        : toAlpha(theme.focusBorder, 0.2),
+                  color:
+                    pathAnalysis.severity === 'success'
+                      ? '#10b981'
+                      : pathAnalysis.severity === 'warning'
+                        ? '#f59e0b'
+                        : theme.foreground
+                }}
+              >
+                <div className="leading-5">
+                  <div className="font-medium">
+                    {pathAnalysis.severity === 'success' ? 'Detected:' : pathAnalysis.severity === 'warning' ? 'Reminder:' : 'Suggestion:'} {pathAnalysis.summary}
+                  </div>
+                  {pathAnalysis.detail && (
+                    <div style={{ color: toAlpha(theme.foreground, 0.72) }}>{pathAnalysis.detail}</div>
+                  )}
+                </div>
+                {pathAnalysis.suggestedType && pathAnalysis.suggestedType !== editedProject.type && (
+                  <button
+                    className="soft-button px-3 py-1.5 rounded-xl text-xs whitespace-nowrap"
+                    style={modalSecondaryButtonStyle}
+                    onClick={applySuggestedProjectType}
+                  >
+                    Use {getProjectTypeLabel(pathAnalysis.suggestedType)}
+                  </button>
+                )}
+              </div>
+            )}
             {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
               <div className="text-xs mt-2 leading-5" style={{ color: theme.foreground, opacity: 0.7 }}>
                 Format: user@hostname:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''} or user@hostname:C:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''}
@@ -2046,6 +2244,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           </button>
         </div>
         </div>
+      </div>
       </div>
     </div>,
     document.body

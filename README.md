@@ -24,6 +24,12 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 - `🧹` Cleaner command palette with less noise
 - `🪟` Proper overlay Add/Edit modals
 
+### `🆕` Latest In 2.0.1
+
+- More stable `Add / Edit` modal behavior
+- Proper scrolling for smaller windows
+- Smarter path detection and inline reminders while editing projects
+
 ![Project Pilot Overview](media/demo/demo.png)
 
 ## Screenshots

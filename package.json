@@ -2,7 +2,7 @@
   "name": "project-pilot",
   "displayName": "Project Pilot",
   "description": "Launch local folders, workspace files, and SSH projects from one modern command deck.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {

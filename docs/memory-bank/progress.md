@@ -14,3 +14,7 @@
 - Reorganized README and CHANGELOG around the new `2.0.0` release story
 - Bumped the extension version to `2.0.0` for the first major modern glass UI release
 - Moved detailed usage and development documentation out of README and into `docs/` to keep the marketplace page concise
+- Fixed the Add/Edit modal black-screen regression caused by the new path analysis workflow
+- Restored modal scrolling for smaller windows and constrained layouts
+- Added inline path auto-detection guidance in the Add/Edit modal
+- Bumped the extension version to `2.0.1` for publishing

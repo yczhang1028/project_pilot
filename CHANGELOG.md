@@ -2,6 +2,13 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [2.0.1] - 2026-03-10
+
+### 🔧 Patch Updates
+- **Modal Stability Fix**: Fixed an `Edit Project` modal regression that could cause the webview to black screen after the new path analysis workflow was introduced.
+- **Modal Scrolling Fix**: Restored proper scrolling behavior for tall Add/Edit dialogs so actions remain reachable on smaller windows and constrained layouts.
+- **Smarter Path Guidance**: Added automatic path detection and inline guidance in the modal so users get clearer suggestions for local folders, workspace files, SSH projects, and Windows-style SSH paths.
+
 ## [2.0.0] - 2026-03-10
 
 ### Major Release
