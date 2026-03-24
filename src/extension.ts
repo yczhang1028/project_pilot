@@ -3,7 +3,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ManagerViewProvider } from './managerViewProvider';
 import { OutlineMode, OutlineTreeProvider } from './outlineTreeProvider';
-import { ConfigStore, ProjectItem } from './store';
+import { getCurrentRemoteStatus } from './remoteContext';
+import { ConfigStore, ProjectItem, ProjectType } from './store';
+import {
+  detectProjectTypeFromPath,
+  normalizeProjectItemForStorage,
+  normalizeProjectPathForStorage,
+  normalizeSelectedProjectUri,
+  type NormalizedProjectSelection
+} from './projectPath';
+import { resolveSshTarget } from './sshResolve';
 import {
   buildRemoteSshUri,
   extractHostnameFromSshPath,
@@ -131,7 +140,8 @@ export async function activate(context: vscode.ExtensionContext) {
         title: 'Select Local Project Folder'
       });
       if (!uri || !uri[0]) { return; }
-      const defaultName = path.basename(uri[0].fsPath) || 'New Project';
+      const selection = normalizeSelectedProjectUri(uri[0], 'folder');
+      const defaultName = selection.suggestedName || 'New Project';
       const name = await vscode.window.showInputBox({ 
         prompt: 'Project name', 
         value: defaultName,
@@ -139,19 +149,18 @@ export async function activate(context: vscode.ExtensionContext) {
       });
       if (!name) { return; }
       
-      // Auto-detect project type and suggest tags
-      const tags = await detectProjectTags(uri[0].fsPath);
+      const tags = await getTagsForSelectedProject(uri[0], selection);
       await store.addProject({ 
         name: name.trim(), 
-        path: uri[0].fsPath, 
+        path: selection.path, 
         description: '',
-        type: 'local', 
-        color: '#3b82f6', 
+        type: selection.type, 
+        color: getProjectTypeColor(selection.type), 
         tags 
       });
       outlineProvider.refresh();
       managerProvider.postState();
-      vscode.window.showInformationMessage(`Added local project: ${name}`);
+      vscode.window.showInformationMessage(`Added ${getProjectTypeLabel(selection.type)}: ${name}`);
     }),
     vscode.commands.registerCommand('projectPilot.addWorkspaceFile', async () => {
       const uri = await vscode.window.showOpenDialog({ 
@@ -162,44 +171,52 @@ export async function activate(context: vscode.ExtensionContext) {
         title: 'Select Workspace File'
       });
       if (!uri || !uri[0]) { return; }
-      const defaultName = path.basename(uri[0].fsPath, '.code-workspace') || 'New Workspace';
+      const selection = normalizeSelectedProjectUri(uri[0], 'workspace');
+      const defaultName = selection.suggestedName || 'New Workspace';
       const name = await vscode.window.showInputBox({ 
         prompt: 'Workspace name', 
         value: defaultName,
         validateInput: (value) => value.trim() ? null : 'Workspace name cannot be empty'
       });
       if (!name) { return; }
+      const tags = await getTagsForSelectedProject(uri[0], selection);
       await store.addProject({ 
         name: name.trim(), 
-        path: uri[0].fsPath, 
+        path: selection.path, 
         description: '',
-        type: 'workspace', 
-        color: '#10b981', 
-        tags: ['workspace'] 
+        type: selection.type, 
+        color: getProjectTypeColor(selection.type), 
+        tags 
       });
       outlineProvider.refresh();
       managerProvider.postState();
-      vscode.window.showInformationMessage(`Added workspace: ${name}`);
+      vscode.window.showInformationMessage(`Added ${getProjectTypeLabel(selection.type)}: ${name}`);
     }),
     vscode.commands.registerCommand('projectPilot.addSshProject', async () => {
       const input = await vscode.window.showInputBox({ 
         prompt: 'SSH connection string',
-        placeHolder: 'user@hostname:/path, user@hostname:C:/path, or vscode-remote://ssh-remote+hostname/path',
+        placeHolder: 'user@hostname:/path, hostname:/path, user@hostname:C:/path, hostname:C:/path, or vscode-remote://ssh-remote+hostname/path',
         validateInput: (value) => {
           if (!value.trim()) return 'SSH connection string cannot be empty';
-          if (!value.includes('@') && !value.startsWith('vscode-remote://')) {
-            return 'Please provide a valid SSH format: user@hostname:/path or user@hostname:C:/path';
+          if (!parseRawSshPath(normalizeProjectPathForStorage(value)) && !value.startsWith('vscode-remote://')) {
+            return 'Please provide a valid SSH format: user@hostname:/path, hostname:/path, user@hostname:C:/path, or hostname:C:/path';
           }
           return null;
         }
       });
       if (!input) { return; }
+      const normalizedPath = normalizeProjectPathForStorage(input);
+      const detectedType = detectProjectTypeFromPath(normalizedPath);
       
       // Extract name suggestion from path
-      const defaultName = getSuggestedNameFromSshPath(input, 'SSH Project');
+      const defaultName = getSuggestedNameFromSshPath(
+        normalizedPath,
+        detectedType === 'ssh-workspace' ? 'SSH Workspace' : 'SSH Project',
+        detectedType === 'ssh-workspace'
+      );
       
       // Extract hostname for auto-tagging
-      const hostname = extractHostnameFromSshPath(input);
+      const hostname = extractHostnameFromSshPath(normalizedPath);
       
       const name = await vscode.window.showInputBox({ 
         prompt: 'Project name', 
@@ -209,30 +226,33 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!name) { return; }
       
       const tags = ['ssh', 'remote'];
+      if (detectedType === 'ssh-workspace') {
+        tags.push('workspace');
+      }
       if (hostname) {
         tags.push(hostname);
       }
       
       await store.addProject({ 
         name: name.trim(), 
-        path: input.trim(), 
+        path: normalizedPath, 
         description: '',
-        type: 'ssh', 
-        color: '#f59e0b', 
+        type: detectedType, 
+        color: getProjectTypeColor(detectedType), 
         tags 
       });
       outlineProvider.refresh();
       managerProvider.postState();
-      vscode.window.showInformationMessage(`Added SSH project: ${name}`);
+      vscode.window.showInformationMessage(`Added ${getProjectTypeLabel(detectedType)}: ${name}`);
     }),
     vscode.commands.registerCommand('projectPilot.addSshWorkspace', async () => {
       const input = await vscode.window.showInputBox({ 
         prompt: 'SSH workspace file path',
-        placeHolder: 'user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace',
+        placeHolder: 'user@hostname:/path/to/workspace.code-workspace, hostname:/path/to/workspace.code-workspace, user@hostname:C:/path/to/workspace.code-workspace, or hostname:C:/path/to/workspace.code-workspace',
         validateInput: (value) => {
           if (!value.trim()) return 'SSH workspace path cannot be empty';
-          if (!value.includes('@') && !value.startsWith('vscode-remote://')) {
-            return 'Please provide a valid SSH format: user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace';
+          if (!parseRawSshPath(normalizeProjectPathForStorage(value)) && !value.startsWith('vscode-remote://')) {
+            return 'Please provide a valid SSH format: user@hostname:/path/to/workspace.code-workspace, hostname:/path/to/workspace.code-workspace, user@hostname:C:/path/to/workspace.code-workspace, or hostname:C:/path/to/workspace.code-workspace';
           }
           if (!value.endsWith('.code-workspace')) {
             return 'Path should end with .code-workspace';
@@ -241,12 +261,14 @@ export async function activate(context: vscode.ExtensionContext) {
         }
       });
       if (!input) { return; }
+      const normalizedPath = normalizeProjectPathForStorage(input);
+      const detectedType = detectProjectTypeFromPath(normalizedPath);
       
       // Extract name suggestion from path
-      const defaultName = getSuggestedNameFromSshPath(input, 'SSH Workspace', true);
+      const defaultName = getSuggestedNameFromSshPath(normalizedPath, 'SSH Workspace', true);
       
       // Extract hostname for auto-tagging
-      const hostname = extractHostnameFromSshPath(input);
+      const hostname = extractHostnameFromSshPath(normalizedPath);
       
       const name = await vscode.window.showInputBox({ 
         prompt: 'Workspace name', 
@@ -262,15 +284,15 @@ export async function activate(context: vscode.ExtensionContext) {
       
       await store.addProject({ 
         name: name.trim(), 
-        path: input.trim(), 
+        path: normalizedPath, 
         description: '',
-        type: 'ssh-workspace', 
-        color: '#8b5cf6', 
+        type: detectedType, 
+        color: getProjectTypeColor(detectedType), 
         tags 
       });
       outlineProvider.refresh();
       managerProvider.postState();
-      vscode.window.showInformationMessage(`Added SSH workspace: ${name}`);
+      vscode.window.showInformationMessage(`Added ${getProjectTypeLabel(detectedType)}: ${name}`);
     }),
     vscode.commands.registerCommand('projectPilot.addCurrentFolder', async () => {
       const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -279,7 +301,8 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       
-      const defaultName = workspaceFolder.name;
+      const selection = normalizeSelectedProjectUri(workspaceFolder.uri, 'folder');
+      const defaultName = selection.suggestedName || workspaceFolder.name;
       const name = await vscode.window.showInputBox({ 
         prompt: 'Project name', 
         value: defaultName,
@@ -287,18 +310,18 @@ export async function activate(context: vscode.ExtensionContext) {
       });
       if (!name) { return; }
       
-      const tags = await detectProjectTags(workspaceFolder.uri.fsPath);
+      const tags = await getTagsForSelectedProject(workspaceFolder.uri, selection);
       await store.addProject({ 
         name: name.trim(), 
-        path: workspaceFolder.uri.fsPath, 
+        path: selection.path, 
         description: '',
-        type: 'local', 
-        color: '#3b82f6', 
+        type: selection.type, 
+        color: getProjectTypeColor(selection.type), 
         tags 
       });
       outlineProvider.refresh();
       managerProvider.postState();
-      vscode.window.showInformationMessage(`Added current folder as project: ${name}`);
+      vscode.window.showInformationMessage(`Added ${getProjectTypeLabel(selection.type)}: ${name}`);
     }),
     vscode.commands.registerCommand('projectPilot.scanWorkspaceFolders', async () => {
       const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -309,16 +332,16 @@ export async function activate(context: vscode.ExtensionContext) {
       
       let addedCount = 0;
       for (const folder of workspaceFolders) {
-        // Check if project already exists
-        const exists = store.state.projects.some(p => p.path === folder.uri.fsPath);
+        const selection = normalizeSelectedProjectUri(folder.uri, 'folder');
+        const exists = store.state.projects.some(p => p.path === selection.path);
         if (!exists) {
-          const tags = await detectProjectTags(folder.uri.fsPath);
+          const tags = await getTagsForSelectedProject(folder.uri, selection);
           await store.addProject({
-            name: folder.name,
-            path: folder.uri.fsPath,
+            name: selection.suggestedName || folder.name,
+            path: selection.path,
             description: '',
-            type: 'local',
-            color: '#3b82f6',
+            type: selection.type,
+            color: getProjectTypeColor(selection.type),
             tags
           });
           addedCount++;
@@ -889,6 +912,85 @@ async function detectProjectTags(projectPath: string): Promise<string[]> {
   return [...new Set(tags)];
 }
 
+function getProjectTypeColor(type: ProjectType): string {
+  switch (type) {
+    case 'local':
+      return '#3b82f6';
+    case 'workspace':
+      return '#10b981';
+    case 'ssh':
+      return '#f59e0b';
+    case 'ssh-workspace':
+      return '#8b5cf6';
+    default:
+      return '#3b82f6';
+  }
+}
+
+function getProjectTypeLabel(type: ProjectType): string {
+  switch (type) {
+    case 'local':
+      return 'local project';
+    case 'workspace':
+      return 'workspace';
+    case 'ssh':
+      return 'SSH project';
+    case 'ssh-workspace':
+      return 'SSH workspace';
+    default:
+      return 'project';
+  }
+}
+
+function getDefaultTagsForSelection(selection: NormalizedProjectSelection): string[] {
+  const tags: string[] = [];
+
+  if (selection.type === 'workspace' || selection.type === 'ssh-workspace') {
+    tags.push('workspace');
+  }
+
+  if (selection.type === 'ssh' || selection.type === 'ssh-workspace') {
+    tags.push('ssh', 'remote');
+    if (selection.sshHost) {
+      tags.push(selection.sshHost.split('@')[1] || selection.sshHost);
+    }
+  }
+
+  return [...new Set(tags)];
+}
+
+async function getTagsForSelectedProject(
+  uri: vscode.Uri,
+  selection: NormalizedProjectSelection
+): Promise<string[]> {
+  if (selection.type === 'local' && uri.scheme === 'file') {
+    return detectProjectTags(uri.fsPath);
+  }
+
+  return getDefaultTagsForSelection(selection);
+}
+
+function getBrowseDefaultUri(currentPath?: string): vscode.Uri | undefined {
+  if (!currentPath?.trim()) {
+    return undefined;
+  }
+
+  if (currentPath.startsWith('vscode-remote://')) {
+    return vscode.Uri.parse(currentPath);
+  }
+
+  const remoteUri = buildRemoteSshUri(currentPath);
+  if (remoteUri) {
+    return vscode.Uri.parse(remoteUri);
+  }
+
+  try {
+    return vscode.Uri.file(currentPath);
+  } catch {
+    return undefined;
+  }
+}
+
 // Cross-platform utility functions
 function normalizePath(filePath: string): string {
   return path.normalize(filePath);
@@ -992,7 +1094,7 @@ async function handleWebviewMessage(
     await vscode.commands.executeCommand('projectPilot.addLocalProject');
   } else if (msg.type === 'addOrUpdate') {
     // Store 的 upsertProject 会触发 onChangeCallback，自动更新所有视图
-    await store.upsertProject(msg.payload);
+    await store.upsertProject(normalizeProjectItemForStorage(msg.payload));
   } else if (msg.type === 'delete') {
     // Store 的 deleteProject 会触发 onChangeCallback，自动更新所有视图
     await store.deleteProject(msg.payload.id);
@@ -1022,12 +1124,19 @@ async function handleWebviewMessage(
       canSelectFiles: false,
       canSelectMany: false,
       title: 'Select Project Folder',
-      defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+      defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
     });
     if (result && result[0]) {
+      const selection = normalizeSelectedProjectUri(result[0], 'folder');
       webview.postMessage({ 
         type: 'pathSelected', 
-        payload: { path: result[0].fsPath, inputType: 'folder' } 
+        payload: {
+          path: selection.path,
+          inputType: selection.type,
+          projectType: selection.type,
+          suggestedName: selection.suggestedName,
+          sshHost: selection.sshHost
+        }
       });
     }
   } else if (msg.type === 'browseWorkspace') {
@@ -1037,16 +1146,23 @@ async function handleWebviewMessage(
       canSelectMany: false,
       title: 'Select Workspace File',
       filters: { 'Workspace Files': ['code-workspace'] },
-      defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+      defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
     });
     if (result && result[0]) {
+      const selection = normalizeSelectedProjectUri(result[0], 'workspace');
       webview.postMessage({ 
         type: 'pathSelected', 
-        payload: { path: result[0].fsPath, inputType: 'workspace' } 
+        payload: {
+          path: selection.path,
+          inputType: selection.type,
+          projectType: selection.type,
+          suggestedName: selection.suggestedName,
+          sshHost: selection.sshHost
+        }
       });
     }
   } else if (msg.type === 'browseSshFolder' || msg.type === 'browseSshWorkspace') {
-    const remoteInfo = getRemoteInfo();
+    const remoteInfo = await getCurrentRemoteStatus();
     
     if (!remoteInfo.isRemote) {
       webview.postMessage({ 
@@ -1066,52 +1182,40 @@ async function handleWebviewMessage(
       canSelectFiles: isWorkspace,
       canSelectMany: false,
       title: isWorkspace ? 'Select Remote Workspace File' : 'Select Remote Folder',
-      filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined
+      filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined,
+      defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
     });
     
     if (result && result[0]) {
-      const remotePath = result[0].path;
-      const sshPath = `${remoteInfo.sshHost}:${remotePath}`;
+      const selection = normalizeSelectedProjectUri(result[0], isWorkspace ? 'workspace' : 'folder');
       
       webview.postMessage({ 
         type: 'pathSelected', 
         payload: { 
-          path: sshPath, 
-          inputType: isWorkspace ? 'ssh-workspace' : 'ssh',
-          remotePath: remotePath,
-          sshHost: remoteInfo.sshHost
+          path: selection.path,
+          inputType: selection.type,
+          projectType: selection.type,
+          suggestedName: selection.suggestedName,
+          sshHost: selection.sshHost ?? remoteInfo.sshHost
         } 
       });
     }
   } else if (msg.type === 'checkRemoteStatus') {
-    const remoteInfo = getRemoteInfo();
+    const remoteInfo = await getCurrentRemoteStatus();
     webview.postMessage({ type: 'remoteStatus', payload: remoteInfo });
   } else if (msg.type === 'testConnection') {
     const result = await testSshConnectionFormat(msg.payload);
     webview.postMessage({ type: 'connectionTestResult', payload: result });
-  }
-}
-
-function getRemoteInfo(): { isRemote: boolean; remoteName?: string; sshHost?: string } {
-  const remoteName = vscode.env.remoteName;
-  
-  if (!remoteName) {
-    return { isRemote: false };
-  }
-  
-  if (remoteName === 'ssh-remote') {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (workspaceFolder) {
-      const uri = workspaceFolder.uri;
-      if (uri.scheme === 'vscode-remote' && uri.authority.startsWith('ssh-remote+')) {
-        const sshHost = decodeURIComponent(uri.authority.replace('ssh-remote+', ''));
-        return { isRemote: true, remoteName, sshHost };
+  } else if (msg.type === 'resolveSshTarget') {
+    const result = await resolveSshTarget(msg.payload.path);
+    webview.postMessage({
+      type: 'sshTargetResolved',
+      payload: {
+        ...result,
+        requestId: msg.payload.requestId
       }
-    }
-    return { isRemote: true, remoteName };
+    });
   }
-  
-  return { isRemote: false, remoteName };
 }
 
 async function testSshConnectionFormat(payload: { path: string; name: string; type?: string }): Promise<{ success: boolean; message: string }> {
@@ -1129,10 +1233,7 @@ async function testSshConnectionFormat(payload: { path: string; name: string; ty
   } else {
     const parsed = parseRawSshPath(payload.path);
     if (!parsed) {
-      return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path or user@hostname:C:/path' };
-    }
-    if (!parsed.userHost.includes('@')) {
-      return { success: false, message: 'Invalid format: missing @ in user@hostname part' };
+      return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path, hostname:/path, user@hostname:C:/path, or hostname:C:/path' };
     }
     if (!parsed.remotePath || parsed.remotePath.trim() === '') {
       return { success: false, message: 'Invalid format: missing remote path after :' };

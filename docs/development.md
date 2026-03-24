@@ -25,6 +25,9 @@ npm run watch
 1. Install dependencies.
 2. Run `npm run build`.
 3. Launch the extension from Run and Debug with `Run Extension`.
+4. For SSH validation, use `Run Extension (Remote SSH Folder)` or `Run Extension (Remote SSH Workspace)` and provide:
+   - SSH authority such as `my-host` or `user@my-host`
+   - A remote Linux path like `/repo/app` or a remote Windows path like `C:/repo/app`
 
 ## Webview Development
 

@@ -24,11 +24,12 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 - `🧹` Cleaner command palette with less noise
 - `🪟` Proper overlay Add/Edit modals
 
-### `🆕` Latest In 2.0.1
+### `🆕` Latest In 2.0.2
 
-- More stable `Add / Edit` modal behavior
-- Proper scrolling for smaller windows
-- Smarter path detection and inline reminders while editing projects
+- Current SSH window context can prefill remote authority and path details
+- Safer SSH path validation prevents mismatched paths from being saved
+- Fixed remote Linux path normalization while keeping Windows SSH paths compatible
+- Added easier F5 Remote SSH debug flows for development
 
 ![Project Pilot Overview](media/demo/demo.png)
 

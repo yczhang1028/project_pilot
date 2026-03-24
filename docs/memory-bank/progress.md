@@ -18,3 +18,15 @@
 - Restored modal scrolling for smaller windows and constrained layouts
 - Added inline path auto-detection guidance in the Add/Edit modal
 - Bumped the extension version to `2.0.1` for publishing
+- Normalized file-picker results so local paths, Linux SSH paths, and Windows SSH paths are stored in a consistent format
+- Fixed Add/Edit path selection to auto-correct project type when a picker returns a remote SSH URI
+- Added storage-side path normalization so manually entered SSH paths and `vscode-remote://` URIs do not persist as garbled or mismatched entries
+- Added best-effort SSH target enrichment in the Add/Edit modal using `ssh -G` plus DNS lookup to surface user, host, hostname, port, and IP details
+- Expanded SSH path handling to support config-backed alias inputs such as `host:/path` alongside explicit `user@host:/path`
+- Added dedicated F5 debug launch entries for Remote SSH folders and remote `.code-workspace` files so SSH flows can be validated directly in an extension development host
+- Removed SSH sample strings from new-project path state so examples no longer leak into parsing, browse dialogs, or saved configuration
+- Added current SSH window context detection for authority, current remote path, username, host, IP, and port, and surfaced it in the Add/Edit modal
+- Added save-time path validation so mismatched local/workspace/SSH path types are blocked before they can be persisted
+- Fixed SSH remote Linux path prefills so they no longer produce `://path` style double-slash regressions
+- Switched SSH project creation to prefer current SSH window context over generic example strings
+- Bumped the extension version to `2.0.2` for publishing

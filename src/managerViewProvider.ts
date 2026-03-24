@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
+import { getCurrentRemoteStatus } from './remoteContext';
 import { ConfigStore } from './store';
-import { parseRawSshPath } from './sshPath';
+import { normalizeProjectItemForStorage, normalizeSelectedProjectUri } from './projectPath';
+import { resolveSshTarget } from './sshResolve';
+import { buildRemoteSshUri, parseRawSshPath } from './sshPath';
 
 export class ManagerViewProvider implements vscode.WebviewViewProvider {
   private currentView?: vscode.WebviewView;
@@ -20,7 +23,7 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
       } else if (msg.type === 'addLocal') {
         await vscode.commands.executeCommand('projectPilot.addLocalProject');
       } else if (msg.type === 'addOrUpdate') {
-        await this.store.upsertProject(msg.payload);
+        await this.store.upsertProject(normalizeProjectItemForStorage(msg.payload));
         this.postState(webviewView);
       } else if (msg.type === 'delete') {
         await this.store.deleteProject(msg.payload.id);
@@ -40,6 +43,15 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
         // 测试SSH连接
         const result = await this.testSshConnection(msg.payload);
         webviewView.webview.postMessage({ type: 'connectionTestResult', payload: result });
+      } else if (msg.type === 'resolveSshTarget') {
+        const result = await resolveSshTarget(msg.payload.path);
+        webviewView.webview.postMessage({
+          type: 'sshTargetResolved',
+          payload: {
+            ...result,
+            requestId: msg.payload.requestId
+          }
+        });
       } else if (msg.type === 'updateUISettings') {
         await this.store.updateUISettings(msg.payload);
         this.postState(webviewView);
@@ -64,12 +76,19 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
           canSelectFiles: false,
           canSelectMany: false,
           title: 'Select Project Folder',
-          defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+          defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
         });
         if (result && result[0]) {
+          const selection = normalizeSelectedProjectUri(result[0], 'folder');
           webviewView.webview.postMessage({ 
             type: 'pathSelected', 
-            payload: { path: result[0].fsPath, inputType: 'folder' } 
+            payload: {
+              path: selection.path,
+              inputType: selection.type,
+              projectType: selection.type,
+              suggestedName: selection.suggestedName,
+              sshHost: selection.sshHost
+            }
           });
         }
       } else if (msg.type === 'browseWorkspace') {
@@ -81,17 +100,24 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
           filters: {
             'Workspace Files': ['code-workspace']
           },
-          defaultUri: msg.payload.currentPath ? vscode.Uri.file(msg.payload.currentPath) : undefined
+          defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
         });
         if (result && result[0]) {
+          const selection = normalizeSelectedProjectUri(result[0], 'workspace');
           webviewView.webview.postMessage({ 
             type: 'pathSelected', 
-            payload: { path: result[0].fsPath, inputType: 'workspace' } 
+            payload: {
+              path: selection.path,
+              inputType: selection.type,
+              projectType: selection.type,
+              suggestedName: selection.suggestedName,
+              sshHost: selection.sshHost
+            }
           });
         }
       } else if (msg.type === 'browseSshFolder' || msg.type === 'browseSshWorkspace') {
         // 检测是否在远程环境中
-        const remoteInfo = this.getRemoteInfo();
+        const remoteInfo = await getCurrentRemoteStatus();
         
         if (!remoteInfo.isRemote) {
           // 不在远程环境，提示用户
@@ -113,27 +139,27 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
           canSelectFiles: isWorkspace,
           canSelectMany: false,
           title: isWorkspace ? 'Select Remote Workspace File' : 'Select Remote Folder',
-          filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined
+          filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined,
+          defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
         });
         
         if (result && result[0]) {
-          // 拼接完整的 SSH 路径
-          const remotePath = result[0].path;
-          const sshPath = `${remoteInfo.sshHost}:${remotePath}`;
+          const selection = normalizeSelectedProjectUri(result[0], isWorkspace ? 'workspace' : 'folder');
           
           webviewView.webview.postMessage({ 
             type: 'pathSelected', 
             payload: { 
-              path: sshPath, 
-              inputType: isWorkspace ? 'ssh-workspace' : 'ssh',
-              remotePath: remotePath,
-              sshHost: remoteInfo.sshHost
+              path: selection.path,
+              inputType: selection.type,
+              projectType: selection.type,
+              suggestedName: selection.suggestedName,
+              sshHost: selection.sshHost ?? remoteInfo.sshHost
             } 
           });
         }
       } else if (msg.type === 'checkRemoteStatus') {
         // 检查当前是否在远程环境
-        const remoteInfo = this.getRemoteInfo();
+        const remoteInfo = await getCurrentRemoteStatus();
         webviewView.webview.postMessage({ 
           type: 'remoteStatus', 
           payload: remoteInfo
@@ -161,32 +187,6 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
     (view ?? this.currentView)?.webview.postMessage(message);
   }
 
-  private getRemoteInfo(): { isRemote: boolean; remoteName?: string; sshHost?: string } {
-    // 检测是否在远程环境中
-    const remoteName = vscode.env.remoteName;
-    
-    if (!remoteName) {
-      return { isRemote: false };
-    }
-    
-    // 检查是否是 SSH 远程
-    if (remoteName === 'ssh-remote') {
-      // 尝试从工作区获取 SSH 主机信息
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (workspaceFolder) {
-        const uri = workspaceFolder.uri;
-        // SSH URI 格式: vscode-remote://ssh-remote+user@hostname/path
-        if (uri.scheme === 'vscode-remote' && uri.authority.startsWith('ssh-remote+')) {
-          const sshHost = decodeURIComponent(uri.authority.replace('ssh-remote+', ''));
-          return { isRemote: true, remoteName, sshHost };
-        }
-      }
-      return { isRemote: true, remoteName };
-    }
-    
-    return { isRemote: false, remoteName };
-  }
-
   private async testSshConnection(payload: { path: string; name: string; type?: string }): Promise<{ success: boolean; message: string }> {
     try {
       // 基本格式验证
@@ -205,10 +205,7 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
       } else {
         const parsed = parseRawSshPath(payload.path);
         if (!parsed) {
-          return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path or user@hostname:C:/path' };
-        }
-        if (!parsed.userHost.includes('@')) {
-          return { success: false, message: 'Invalid format: missing @ in user@hostname part' };
+          return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path, hostname:/path, user@hostname:C:/path, or hostname:C:/path' };
         }
         if (!parsed.remotePath || parsed.remotePath.trim() === '') {
           return { success: false, message: 'Invalid format: missing remote path after :' };
@@ -258,6 +255,27 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
       <script nonce="${nonce}" src="${scriptUri}"></script>
     </body>
     </html>`;
+  }
+}
+
+function getBrowseDefaultUri(currentPath?: string): vscode.Uri | undefined {
+  if (!currentPath?.trim()) {
+    return undefined;
+  }
+
+  if (currentPath.startsWith('vscode-remote://')) {
+    return vscode.Uri.parse(currentPath);
+  }
+
+  const remoteUri = buildRemoteSshUri(currentPath);
+  if (remoteUri) {
+    return vscode.Uri.parse(remoteUri);
+  }
+
+  try {
+    return vscode.Uri.file(currentPath);
+  } catch {
+    return undefined;
   }
 }
 

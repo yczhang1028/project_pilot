@@ -33,7 +33,15 @@ type State = {
 declare const acquireVsCodeApi: any;
 const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : { postMessage: console.log };
 
-const parseRawSshPath = (input: string): { userHost: string; hostname: string; remotePath: string } | null => {
+const safeDecode = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
+const parseRawSshPath = (input: string): { userHost: string; username?: string; hostname: string; remotePath: string } | null => {
   const trimmed = input.trim();
   const separatorIndex = trimmed.indexOf(':');
 
@@ -44,12 +52,27 @@ const parseRawSshPath = (input: string): { userHost: string; hostname: string; r
   const userHost = trimmed.slice(0, separatorIndex).trim();
   const remotePath = trimmed.slice(separatorIndex + 1).trim();
 
-  if (!userHost.includes('@') || !remotePath) {
+  if (!userHost || !remotePath) {
     return null;
   }
 
-  const hostname = userHost.split('@')[1] || userHost;
-  return { userHost, hostname, remotePath };
+  if (userHost.includes('/') || userHost.includes('\\')) {
+    return null;
+  }
+
+  if (/^[a-zA-Z]$/.test(userHost)) {
+    return null;
+  }
+
+  const atIndex = userHost.lastIndexOf('@');
+  const username = atIndex > 0 ? userHost.slice(0, atIndex) : undefined;
+  const hostname = atIndex > 0 ? userHost.slice(atIndex + 1) : userHost;
+
+  if (!hostname) {
+    return null;
+  }
+
+  return { userHost, username, hostname, remotePath };
 };
 
 const extractHostnameFromSshPath = (input: string): string | null => {
@@ -74,6 +97,39 @@ type PathAnalysis = {
   severity: 'info' | 'warning' | 'success';
 };
 
+type SshResolution = {
+  success: boolean;
+  requestedPath: string;
+  normalizedPath: string;
+  authority?: string;
+  host?: string;
+  username?: string;
+  resolvedUsername?: string;
+  resolvedHostname?: string;
+  ip?: string;
+  port?: string;
+  canonicalPath?: string;
+  isWindowsRemotePath: boolean;
+  message: string;
+  warnings: string[];
+  requestId?: number;
+};
+
+type CurrentRemoteStatus = {
+  isRemote: boolean;
+  sshHost?: string;
+  currentPath?: string;
+  currentType?: 'ssh' | 'ssh-workspace';
+  username?: string;
+  host?: string;
+  ip?: string;
+  port?: string;
+  message?: string;
+};
+
+const isSshProjectType = (type: ProjectType | null | undefined): type is 'ssh' | 'ssh-workspace' =>
+  type === 'ssh' || type === 'ssh-workspace';
+
 const getSuggestedNameFromPath = (input: string): string => {
   const trimmed = input.trim();
 
@@ -82,8 +138,9 @@ const getSuggestedNameFromPath = (input: string): string => {
   }
 
   if (trimmed.startsWith('vscode-remote://ssh-remote+')) {
-    const pathPart = trimmed.replace(/^vscode-remote:\/\/ssh-remote\+[^/]+/, '');
-    const segments = pathPart.split('/').filter(Boolean);
+    const pathPart = safeDecode(trimmed.replace(/^vscode-remote:\/\/ssh-remote\+[^/]+/, ''));
+    const normalizedPath = pathPart.replace(/^\/([a-zA-Z]:[\\/])/, '$1').replace(/\\/g, '/');
+    const segments = normalizedPath.split('/').filter(Boolean);
     const lastSegment = segments[segments.length - 1] || '';
     return lastSegment.replace(/\.code-workspace$/i, '');
   }
@@ -110,6 +167,7 @@ const analyzeProjectPath = (input: string, currentType: ProjectType): PathAnalys
   const sshPath = parseRawSshPath(trimmed);
   const isWorkspace = /\.code-workspace$/i.test(trimmed);
   const looksLikeLocalPath =
+    trimmed.startsWith('file://') ||
     /^[a-zA-Z]:[\\/]/.test(trimmed) ||
     trimmed.startsWith('/') ||
     trimmed.startsWith('~/') ||
@@ -143,16 +201,6 @@ const analyzeProjectPath = (input: string, currentType: ProjectType): PathAnalys
     };
   }
 
-  if (trimmed.includes('@') && !trimmed.startsWith('vscode-remote://')) {
-    return {
-      suggestedType: null,
-      suggestedName: getSuggestedNameFromPath(trimmed),
-      severity: 'warning',
-      summary: 'This looks like an incomplete SSH path.',
-      detail: 'Use formats like user@hostname:/path or user@hostname:C:/path.'
-    };
-  }
-
   if (isWorkspace) {
     return {
       suggestedType: 'workspace',
@@ -170,6 +218,16 @@ const analyzeProjectPath = (input: string, currentType: ProjectType): PathAnalys
       severity: currentType === 'local' ? 'success' : 'info',
       summary: 'Detected local folder path.',
       detail: currentType === 'local' ? 'Current project type already matches the detected path format.' : `Current type is ${currentType}.`
+    };
+  }
+
+  if (trimmed.includes('@') && !trimmed.startsWith('vscode-remote://')) {
+    return {
+      suggestedType: null,
+      suggestedName: getSuggestedNameFromPath(trimmed),
+      severity: 'warning',
+      summary: 'This looks like an incomplete SSH path.',
+      detail: 'Use formats like user@hostname:/path, hostname:/path, user@hostname:C:/path, or hostname:C:/path.'
     };
   }
 
@@ -191,6 +249,80 @@ const getProjectTypeLabel = (type: ProjectType): string => {
   };
 
   return labels[type];
+};
+
+const detectProjectTypeFromInput = (input: string): ProjectType | null => {
+  const trimmed = input.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  if (trimmed.startsWith('vscode-remote://ssh-remote+')) {
+    return /\.code-workspace$/i.test(trimmed) ? 'ssh-workspace' : 'ssh';
+  }
+
+  const sshPath = parseRawSshPath(trimmed);
+  if (sshPath) {
+    return /\.code-workspace$/i.test(sshPath.remotePath) ? 'ssh-workspace' : 'ssh';
+  }
+
+  return /\.code-workspace$/i.test(trimmed) ? 'workspace' : 'local';
+};
+
+const getExpectedPathExample = (type: ProjectType, remoteStatus?: CurrentRemoteStatus | null): string => {
+  const authority = remoteStatus?.sshHost || 'user@host';
+
+  switch (type) {
+    case 'ssh':
+      return `${authority}:/path/to/project`;
+    case 'ssh-workspace':
+      return `${authority}:/path/to/project.code-workspace`;
+    case 'workspace':
+      return '/path/to/project.code-workspace';
+    default:
+      return '/path/to/project';
+  }
+};
+
+const getProjectValidationError = (
+  project: Pick<ProjectItem, 'name' | 'path' | 'type'>,
+  remoteStatus?: CurrentRemoteStatus | null
+): string | null => {
+  const name = project.name.trim();
+  const projectPath = project.path.trim();
+
+  if (!name) {
+    return 'Project name cannot be empty.';
+  }
+
+  if (!projectPath) {
+    return 'Path cannot be empty.';
+  }
+
+  const detectedType = detectProjectTypeFromInput(projectPath);
+  if (detectedType && detectedType !== project.type) {
+    return `This path looks like ${getProjectTypeLabel(detectedType)}. Switch the type or change the path.`;
+  }
+
+  if (project.type === 'workspace' && !/\.code-workspace$/i.test(projectPath)) {
+    return 'Workspace path should end with .code-workspace.';
+  }
+
+  if (isSshProjectType(project.type)) {
+    if (!projectPath.startsWith('vscode-remote://ssh-remote+') && !parseRawSshPath(projectPath)) {
+      return `Enter a valid SSH path like ${getExpectedPathExample(project.type, remoteStatus)}.`;
+    }
+
+    if (project.type === 'ssh-workspace') {
+      const remotePath = parseRawSshPath(projectPath)?.remotePath || projectPath;
+      if (!/\.code-workspace$/i.test(remotePath)) {
+        return 'SSH workspace path should end with .code-workspace.';
+      }
+    }
+  }
+
+  return null;
 };
 
 // 调试信息
@@ -317,6 +449,8 @@ export default function App() {
       } else if (e.data?.type === 'remoteStatus') {
         // 处理远程状态
         window.dispatchEvent(new CustomEvent('remoteStatus', { detail: e.data.payload }));
+      } else if (e.data?.type === 'sshTargetResolved') {
+        window.dispatchEvent(new CustomEvent('sshTargetResolved', { detail: e.data.payload }));
       }
     };
     window.addEventListener('message', listener);
@@ -1090,11 +1224,7 @@ export default function App() {
             name: newProjectType === 'ssh-workspace' 
               ? 'New SSH Workspace'
               : `New ${newProjectType.charAt(0).toUpperCase() + newProjectType.slice(1)} Project`,
-            path: newProjectType === 'ssh' 
-              ? 'user@hostname:/path/to/project' 
-              : newProjectType === 'ssh-workspace'
-                ? 'user@hostname:/path/to/workspace.code-workspace'
-                : '',
+            path: '',
             description: newProjectType === 'local' ? 'Local project folder' : 
                         newProjectType === 'workspace' ? 'VSCode workspace configuration' : 
                         newProjectType === 'ssh-workspace' ? 'Remote workspace file via SSH' :
@@ -1590,11 +1720,22 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   const [isCreatingNewGroup, setIsCreatingNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [isDragging, setIsDragging] = useState(false);
-  const [remoteStatus, setRemoteStatus] = useState<{ isRemote: boolean; sshHost?: string } | null>(null);
+  const [remoteStatus, setRemoteStatus] = useState<CurrentRemoteStatus | null>(null);
+  const [sshResolution, setSshResolution] = useState<SshResolution | null>(null);
+  const [isResolvingSsh, setIsResolvingSsh] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const sshResolveRequestRef = useRef(0);
   const pathAnalysis = useMemo(
     () => analyzeProjectPath(editedProject.path, editedProject.type),
     [editedProject.path, editedProject.type]
+  );
+  const expectedPathExample = useMemo(
+    () => getExpectedPathExample(editedProject.type, remoteStatus),
+    [editedProject.type, remoteStatus]
+  );
+  const saveValidationError = useMemo(
+    () => getProjectValidationError(editedProject, remoteStatus),
+    [editedProject, remoteStatus]
   );
   const applyPathValue = useCallback((nextPath: string) => {
     const analysis = analyzeProjectPath(nextPath, editedProject.type);
@@ -1606,6 +1747,23 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       return nextProject;
     });
   }, [editedProject.type, hasManuallyEditedName]);
+  const applySelectedPath = useCallback((nextPath: string, detectedType?: ProjectType, suggestedName?: string) => {
+    setEditedProject(prev => {
+      const nextType = detectedType || prev.type;
+      const analysis = analyzeProjectPath(nextPath, nextType);
+      const nextProject = { ...prev, path: nextPath, type: nextType };
+      const nextName = suggestedName || analysis?.suggestedName;
+
+      if (!hasManuallyEditedName && nextName) {
+        nextProject.name = nextName;
+      }
+
+      return nextProject;
+    });
+  }, [hasManuallyEditedName]);
+  const applyCanonicalSshPath = useCallback((nextPath: string) => {
+    setEditedProject(prev => ({ ...prev, path: nextPath }));
+  }, []);
   const applySuggestedProjectType = useCallback(() => {
     if (!pathAnalysis?.suggestedType || pathAnalysis.suggestedType === editedProject.type) {
       return;
@@ -1619,6 +1777,58 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       vscode.postMessage({ type: 'checkRemoteStatus' });
     }
   }, [editedProject.type]);
+
+  useEffect(() => {
+    if (
+      !isNewProject ||
+      !isSshProjectType(editedProject.type) ||
+      editedProject.path.trim() ||
+      !remoteStatus?.isRemote ||
+      !remoteStatus.currentPath ||
+      remoteStatus.currentType !== editedProject.type
+    ) {
+      return;
+    }
+
+    applySelectedPath(remoteStatus.currentPath, remoteStatus.currentType, getSuggestedNameFromPath(remoteStatus.currentPath));
+  }, [
+    applySelectedPath,
+    editedProject.path,
+    editedProject.type,
+    isNewProject,
+    remoteStatus
+  ]);
+
+  useEffect(() => {
+    const trimmedPath = editedProject.path.trim();
+    const detectedType = pathAnalysis?.suggestedType || editedProject.type;
+    const canResolve =
+      !!trimmedPath &&
+      isSshProjectType(detectedType) &&
+      (trimmedPath.startsWith('vscode-remote://ssh-remote+') || !!parseRawSshPath(trimmedPath));
+
+    if (!canResolve) {
+      setIsResolvingSsh(false);
+      setSshResolution(null);
+      return;
+    }
+
+    const requestId = sshResolveRequestRef.current + 1;
+    sshResolveRequestRef.current = requestId;
+    setIsResolvingSsh(true);
+
+    const timer = window.setTimeout(() => {
+      vscode.postMessage({
+        type: 'resolveSshTarget',
+        payload: {
+          path: trimmedPath,
+          requestId
+        }
+      });
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [editedProject.path, editedProject.type, pathAnalysis?.suggestedType]);
 
   // 监听连接测试结果和远程状态
   useEffect(() => {
@@ -1634,21 +1844,27 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     };
 
     const handlePathSelected = (event: any) => {
-      const { path, inputType, sshHost } = event.detail;
+      const { path, inputType, projectType, suggestedName, sshHost } = event.detail as {
+        path?: string;
+        inputType?: string;
+        projectType?: ProjectType;
+        suggestedName?: string;
+        sshHost?: string;
+      };
       if (path) {
-        applyPathValue(path);
-        // 如果是文件夹，可以自动设置项目名称
-        if ((inputType === 'folder' || inputType === 'ssh') && !hasManuallyEditedName) {
-          const folderName = path.split(/[/\\:]/).pop() || 'New Project';
-          setEditedProject(prev => ({ ...prev, path, name: folderName }));
-        }
-        // SSH workspace 自动提取名称
-        if (inputType === 'ssh-workspace' && !hasManuallyEditedName) {
-          const fileName = path.split(/[/\\:]/).pop()?.replace('.code-workspace', '') || 'SSH Workspace';
-          setEditedProject(prev => ({ ...prev, path, name: fileName }));
-        }
-        // 自动添加 hostname 作为 tag
-        if (sshHost && (inputType === 'ssh' || inputType === 'ssh-workspace')) {
+        const detectedType =
+          projectType ||
+          (inputType === 'folder'
+            ? 'local'
+            : inputType === 'workspace'
+              ? 'workspace'
+              : inputType === 'ssh' || inputType === 'ssh-workspace'
+                ? inputType
+                : undefined);
+
+        applySelectedPath(path, detectedType, suggestedName);
+
+        if (sshHost && (detectedType === 'ssh' || detectedType === 'ssh-workspace')) {
           const hostname = sshHost.split('@')[1] || sshHost;
           const currentTags = tagsInput.split(',').map(s => s.trim()).filter(Boolean);
           if (!currentTags.includes(hostname)) {
@@ -1671,20 +1887,46 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     };
 
     const handleRemoteStatus = (event: any) => {
-      setRemoteStatus(event.detail);
+      setRemoteStatus(event.detail as CurrentRemoteStatus);
+    };
+
+    const handleSshTargetResolved = (event: any) => {
+      const result = event.detail as SshResolution;
+      if (typeof result.requestId === 'number' && result.requestId !== sshResolveRequestRef.current) {
+        return;
+      }
+
+      setIsResolvingSsh(false);
+      setSshResolution(result.success ? result : null);
+
+      if (
+        result.success &&
+        result.canonicalPath &&
+        result.canonicalPath !== result.requestedPath &&
+        !result.requestedPath.includes('@')
+      ) {
+        setEditedProject(prev => {
+          if (prev.path !== result.requestedPath || prev.path.includes('@')) {
+            return prev;
+          }
+          return { ...prev, path: result.canonicalPath! };
+        });
+      }
     };
 
     window.addEventListener('connectionTestResult', handleTestResult);
     window.addEventListener('pathSelected', handlePathSelected);
     window.addEventListener('sshBrowseResult', handleSshBrowseResult);
     window.addEventListener('remoteStatus', handleRemoteStatus);
+    window.addEventListener('sshTargetResolved', handleSshTargetResolved);
     return () => {
       window.removeEventListener('connectionTestResult', handleTestResult);
       window.removeEventListener('pathSelected', handlePathSelected);
       window.removeEventListener('sshBrowseResult', handleSshBrowseResult);
       window.removeEventListener('remoteStatus', handleRemoteStatus);
+      window.removeEventListener('sshTargetResolved', handleSshTargetResolved);
     };
-  }, [applyPathValue, editedProject, hasManuallyEditedName, tagsInput]);
+  }, [applySelectedPath, tagsInput]);
 
   // 监听ESC键关闭Modal
   useEffect(() => {
@@ -1793,7 +2035,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
       type: 'testConnection', 
       payload: { 
         path: editedProject.path,
-        name: editedProject.name 
+        name: editedProject.name,
+        type: editedProject.type
       } 
     });
   };
@@ -1889,7 +2132,15 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               <input 
                 className="soft-input flex-1 min-w-0 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
                 style={modalInputStyle}
-                placeholder={editedProject.type === 'ssh' ? 'user@hostname:/path or user@hostname:C:/path' : editedProject.type === 'ssh-workspace' ? 'user@hostname:/path/to/workspace.code-workspace or user@hostname:C:/path/to/workspace.code-workspace' : editedProject.type === 'workspace' ? 'Select .code-workspace file' : 'Select project folder'}
+                placeholder={
+                  editedProject.type === 'workspace'
+                    ? 'Select .code-workspace file'
+                    : editedProject.type === 'local'
+                      ? 'Select project folder'
+                      : remoteStatus?.currentPath && remoteStatus.currentType === editedProject.type
+                        ? remoteStatus.currentPath
+                        : expectedPathExample
+                }
                 value={editedProject.path}
                 onChange={e => applyPathValue(e.target.value)}
               />
@@ -1944,7 +2195,8 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                     onClick={() => {
                       if (remoteStatus?.isRemote) {
                         vscode.postMessage({ 
-                          type: editedProject.type === 'ssh-workspace' ? 'browseSshWorkspace' : 'browseSshFolder'
+                          type: editedProject.type === 'ssh-workspace' ? 'browseSshWorkspace' : 'browseSshFolder',
+                          payload: { currentPath: editedProject.path }
                         });
                       } else {
                         setTestMessage('Connect to an SSH remote first to browse remote files');
@@ -2007,9 +2259,84 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                 )}
               </div>
             )}
+            {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && remoteStatus?.isRemote && (
+              <div
+                className="glass-card rounded-xl px-3 py-2 text-xs mt-2 flex items-start justify-between gap-3"
+                style={{
+                  backgroundColor: toAlpha('#10b981', 0.08),
+                  borderColor: toAlpha('#10b981', 0.2),
+                  color: theme.foreground
+                }}
+              >
+                <div className="leading-5">
+                  <div className="font-medium">
+                    Current SSH window: {remoteStatus.sshHost || remoteStatus.host || 'remote'}
+                    {remoteStatus.ip ? ` · IP ${remoteStatus.ip}` : ''}
+                    {remoteStatus.port ? ` · Port ${remoteStatus.port}` : ''}
+                  </div>
+                  {remoteStatus.currentPath && (
+                    <div style={{ color: toAlpha(theme.foreground, 0.76) }}>
+                      Current path: {remoteStatus.currentPath}
+                    </div>
+                  )}
+                </div>
+                {remoteStatus.currentPath && remoteStatus.currentType === editedProject.type && remoteStatus.currentPath !== editedProject.path && (
+                  <button
+                    className="soft-button px-3 py-1.5 rounded-xl text-xs whitespace-nowrap"
+                    style={modalSecondaryButtonStyle}
+                    onClick={() => applySelectedPath(remoteStatus.currentPath!, remoteStatus.currentType, getSuggestedNameFromPath(remoteStatus.currentPath!))}
+                  >
+                    Use current SSH path
+                  </button>
+                )}
+              </div>
+            )}
+            {(isResolvingSsh || sshResolution) && isSshProjectType(pathAnalysis?.suggestedType || editedProject.type) && (
+              <div
+                className="glass-card rounded-xl px-3 py-2 text-xs mt-2"
+                style={{
+                  backgroundColor: toAlpha(theme.focusBorder, 0.08),
+                  borderColor: toAlpha(theme.focusBorder, 0.2),
+                  color: theme.foreground
+                }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="leading-5">
+                    <div className="font-medium">
+                      {isResolvingSsh ? 'Resolving SSH target...' : sshResolution?.message || 'SSH target details ready.'}
+                    </div>
+                    {!isResolvingSsh && sshResolution && (
+                      <div style={{ color: toAlpha(theme.foreground, 0.76) }}>
+                        {sshResolution.resolvedUsername && <span>User: {sshResolution.resolvedUsername} · </span>}
+                        {sshResolution.host && <span>Host: {sshResolution.host}</span>}
+                        {sshResolution.resolvedHostname && sshResolution.resolvedHostname !== sshResolution.host && (
+                          <span> · HostName: {sshResolution.resolvedHostname}</span>
+                        )}
+                        {sshResolution.ip && <span> · IP: {sshResolution.ip}</span>}
+                        {sshResolution.port && <span> · Port: {sshResolution.port}</span>}
+                      </div>
+                    )}
+                    {!isResolvingSsh && sshResolution?.warnings.map((warning, index) => (
+                      <div key={index} style={{ color: '#f59e0b' }}>
+                        {warning}
+                      </div>
+                    ))}
+                  </div>
+                  {!isResolvingSsh && sshResolution?.canonicalPath && sshResolution.canonicalPath !== editedProject.path && (
+                    <button
+                      className="soft-button px-3 py-1.5 rounded-xl text-xs whitespace-nowrap"
+                      style={modalSecondaryButtonStyle}
+                      onClick={() => applyCanonicalSshPath(sshResolution.canonicalPath!)}
+                    >
+                      Use canonical path
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             {(editedProject.type === 'ssh' || editedProject.type === 'ssh-workspace') && (
               <div className="text-xs mt-2 leading-5" style={{ color: theme.foreground, opacity: 0.7 }}>
-                Format: user@hostname:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''} or user@hostname:C:/path{editedProject.type === 'ssh-workspace' ? '/to/workspace.code-workspace' : ''}
+                Expected SSH path: {expectedPathExample}
                 {remoteStatus?.isRemote && (
                   <span style={{ color: '#10b981' }}> • Connected to {remoteStatus.sshHost || 'remote'} - click 📂 to browse</span>
                 )}
@@ -2216,13 +2543,32 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           </div>
         </div>
         
+        {saveValidationError && (
+          <div
+            className="glass-card rounded-xl px-3 py-2 text-xs mt-6"
+            style={{
+              color: '#f59e0b',
+              backgroundColor: toAlpha('#f59e0b', 0.08),
+              borderColor: toAlpha('#f59e0b', 0.2)
+            }}
+          >
+            {saveValidationError}
+          </div>
+        )}
         <div className="flex gap-3 mt-6 flex-col-reverse sm:flex-row">
           <button
             className="soft-button flex-1 px-4 py-3 rounded-2xl transition-colors font-medium"
-            style={modalPrimaryButtonStyle}
+            style={{
+              ...modalPrimaryButtonStyle,
+              opacity: saveValidationError ? 0.6 : 1,
+              cursor: saveValidationError ? 'not-allowed' : 'pointer'
+            }}
             onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
             onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
             onClick={() => {
+              if (saveValidationError) {
+                return;
+              }
               // 保存时处理tags
               const finalProject = {
                 ...editedProject,
@@ -2230,6 +2576,7 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               };
               onSave(finalProject);
             }}
+            disabled={!!saveValidationError}
           >
             {isNewProject ? 'Create Project' : 'Save Changes'}
           </button>

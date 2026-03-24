@@ -2,6 +2,14 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [2.0.2] - 2026-03-10
+
+### 🔧 Patch Updates
+- **Current SSH Context Prefill**: Add/Edit dialogs now prefer the active SSH window context, including current remote path, authority, user, host, IP, and port, instead of relying on generic SSH examples.
+- **Safer SSH Editing Flow**: Removed example SSH strings from real path state and added stronger save-time validation so mismatched local, workspace, and SSH paths cannot be persisted by mistake.
+- **Remote Path Normalization Fix**: Fixed SSH path normalization for remote window prefills and browse flows so Linux paths no longer gain an extra leading slash while Windows remote drive paths continue to work.
+- **Remote Debugging Shortcut**: Added dedicated F5 launch entries for Remote SSH folders and Remote SSH workspaces to make SSH-specific debugging and verification much easier during development.
+
 ## [2.0.1] - 2026-03-10
 
 ### 🔧 Patch Updates
