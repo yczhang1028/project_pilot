@@ -506,6 +506,7 @@
     "build:ext": "tsc -p .",
     "build:webview": "cd webview-ui && npm install && npm run build",
     "test:sshPath": "npm run build:ext && node test/sshPath.test.js",
+    "test:sshHosts": "npm run build:ext && node test/sshHosts.test.js",
     "watch": "npm run watch:ext",
     "watch:ext": "tsc -w -p .",
     "lint": "echo 'No lint configured'",
