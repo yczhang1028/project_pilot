@@ -119,34 +119,61 @@ for (const invalidPort of [0, 65536, 1.5, NaN]) {
   );
 }
 
-const invalidImportedAuthority = Buffer.from(JSON.stringify({
+const invalidImportedJson = JSON.stringify({
   hostName: '10.7.8.9',
   user: 'yichi',
   port: 70000
-})).toString('hex');
-const invalidImportedUri = `vscode-remote://ssh-remote+${invalidImportedAuthority}/C:/repo`;
-assert.strictEqual(
-  normalizeRemoteSshAuthority(invalidImportedAuthority),
-  invalidImportedAuthority,
-  'preserves an imported structured authority whose explicit port is invalid'
-);
-assert.strictEqual(
-  getRawSshPathFromRemoteUri(invalidImportedUri),
-  `${invalidImportedAuthority}:C:/repo`,
-  'preserves invalid imported port data while converting a URI to a raw SSH path'
-);
-assert.strictEqual(
-  buildRemoteSshUri(`${invalidImportedAuthority}:C:/repo`),
-  invalidImportedUri,
-  'round-trips an imported invalid-port authority without silently selecting the default port'
-);
+});
+const invalidImportedAuthority = Buffer.from(invalidImportedJson).toString('hex');
+for (const [label, importedAuthority] of [
+  ['raw JSON', invalidImportedJson],
+  ['percent-encoded JSON', encodeURIComponent(invalidImportedJson)],
+  ['hex JSON', invalidImportedAuthority]
+]) {
+  const importedUri = `vscode-remote://ssh-remote+${importedAuthority}/C:/repo`;
+  const canonicalRawPath = `${invalidImportedAuthority}:C:/repo`;
+  const canonicalUri = `vscode-remote://ssh-remote+${invalidImportedAuthority}/C:/repo`;
 
-const invalidImportedHostAuthority = Buffer.from(JSON.stringify({
+  assert.strictEqual(
+    normalizeRemoteSshAuthority(importedAuthority),
+    invalidImportedAuthority,
+    `normalizes an invalid-port ${label} authority to delimiter-safe hex`
+  );
+  assert.strictEqual(
+    getRawSshPathFromRemoteUri(importedUri),
+    canonicalRawPath,
+    `converts an invalid-port ${label} URI to a delimiter-safe raw SSH path`
+  );
+  assert.deepStrictEqual(
+    parseRawSshPath(canonicalRawPath),
+    {
+      userHost: invalidImportedAuthority,
+      username: 'yichi',
+      hostname: '10.7.8.9',
+      remotePath: 'C:/repo'
+    },
+    `parses the canonical raw path produced from an invalid-port ${label} authority`
+  );
+  assert.strictEqual(
+    buildRemoteSshUri(canonicalRawPath),
+    canonicalUri,
+    `round-trips an invalid-port ${label} authority without selecting the default port`
+  );
+}
+
+const invalidImportedHostJson = JSON.stringify({
   hostName: '10.7.8.9',
   port: 70000
-})).toString('hex');
-const wrappedInvalidImportedUri = `vscode-remote://ssh-remote+someone@${invalidImportedHostAuthority}/C:/repo`;
+});
+const invalidImportedHostAuthority = Buffer.from(invalidImportedHostJson).toString('hex');
+const wrappedInvalidImportedUri = `vscode-remote://ssh-remote+someone@${encodeURIComponent(invalidImportedHostJson)}/C:/repo`;
+const canonicalWrappedInvalidUri = `vscode-remote://ssh-remote+someone@${invalidImportedHostAuthority}/C:/repo`;
 const wrappedInvalidRawPath = `someone@${invalidImportedHostAuthority}:C:/repo`;
+assert.strictEqual(
+  getRawSshPathFromRemoteUri(wrappedInvalidImportedUri),
+  wrappedInvalidRawPath,
+  'canonicalizes an outer-user invalid-port JSON authority before raw-path storage'
+);
 assert.deepStrictEqual(
   parseRawSshPath(wrappedInvalidRawPath),
   {
@@ -159,7 +186,7 @@ assert.deepStrictEqual(
 );
 assert.strictEqual(
   buildRemoteSshUri(wrappedInvalidRawPath),
-  wrappedInvalidImportedUri,
+  canonicalWrappedInvalidUri,
   'round-trips an outer user wrapped around an imported invalid-port authority'
 );
 

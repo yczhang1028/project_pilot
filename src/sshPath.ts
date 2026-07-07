@@ -22,8 +22,13 @@ export interface SshTarget {
 }
 
 interface ParsedSshAuthorityDetails extends SshAuthority {
-  decoded: string;
+  canonicalStructuredAuthority: string;
   invalidExplicitPort: boolean;
+}
+
+interface ParsedAuthorityObject {
+  json: string;
+  properties: Record<string, unknown>;
 }
 
 function safeDecode(value: string): string {
@@ -45,7 +50,7 @@ function getStringProperty(source: Record<string, unknown>, keys: string[]): str
   return undefined;
 }
 
-function parseAuthorityObject(value: string): Record<string, unknown> | undefined {
+function parseAuthorityObject(value: string): ParsedAuthorityObject | undefined {
   const decoded = safeDecode(value).trim();
   const candidates = [decoded];
 
@@ -65,7 +70,10 @@ function parseAuthorityObject(value: string): Record<string, unknown> | undefine
     try {
       const parsed = JSON.parse(candidate) as unknown;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
+        return {
+          json: candidate,
+          properties: parsed as Record<string, unknown>
+        };
       }
     } catch {
       // Not a JSON authority payload.
@@ -98,7 +106,7 @@ function isSafePlainHostname(hostname: string): boolean {
 
 function getStructuredAuthorityDetails(
   parsed: Record<string, unknown>,
-  decoded: string,
+  canonicalStructuredAuthority: string,
   fallbackUsername?: string
 ): ParsedSshAuthorityDetails | undefined {
   const hostname = getStringProperty(parsed, ['hostName', 'hostname', 'host']);
@@ -113,7 +121,7 @@ function getStructuredAuthorityDetails(
     username: getStringProperty(parsed, ['user', 'username']) || fallbackUsername,
     port,
     structured: true,
-    decoded,
+    canonicalStructuredAuthority,
     invalidExplicitPort: hasExplicitPort && port === undefined
   };
 }
@@ -123,7 +131,11 @@ function parseRemoteSshAuthorityDetails(value: string): ParsedSshAuthorityDetail
   const parsed = parseAuthorityObject(decoded);
 
   if (parsed) {
-    const details = getStructuredAuthorityDetails(parsed, decoded);
+    const canonicalStructuredAuthority = Buffer.from(parsed.json, 'utf8').toString('hex');
+    const details = getStructuredAuthorityDetails(
+      parsed.properties,
+      canonicalStructuredAuthority
+    );
     if (details) {
       return details;
     }
@@ -133,7 +145,13 @@ function parseRemoteSshAuthorityDetails(value: string): ParsedSshAuthorityDetail
   if (atIndex > 0) {
     const nested = parseAuthorityObject(decoded.slice(atIndex + 1));
     if (nested) {
-      const details = getStructuredAuthorityDetails(nested, decoded, decoded.slice(0, atIndex));
+      const username = decoded.slice(0, atIndex);
+      const canonicalNestedAuthority = Buffer.from(nested.json, 'utf8').toString('hex');
+      const details = getStructuredAuthorityDetails(
+        nested.properties,
+        `${username}@${canonicalNestedAuthority}`,
+        username
+      );
       if (details) {
         return details;
       }
@@ -145,7 +163,7 @@ function parseRemoteSshAuthorityDetails(value: string): ParsedSshAuthorityDetail
     username: atIndex > 0 ? decoded.slice(0, atIndex) : undefined,
     port: undefined,
     structured: false,
-    decoded,
+    canonicalStructuredAuthority: decoded,
     invalidExplicitPort: false
   };
 }
@@ -215,7 +233,7 @@ export function normalizeRemoteSshAuthority(authority: string): string {
   }
 
   if (parsed.invalidExplicitPort) {
-    return parsed.decoded;
+    return parsed.canonicalStructuredAuthority;
   }
 
   return formatNormalizedStructuredAuthority(parsed);
@@ -236,10 +254,10 @@ export function normalizeRemoteSshUserHost(userHost: string): string {
   if (parsedHostAuthority.structured) {
     if (parsedHostAuthority.invalidExplicitPort) {
       if (parsedHostAuthority.username || isSameUsername(username, getLocalUsername())) {
-        return parsedHostAuthority.decoded;
+        return parsedHostAuthority.canonicalStructuredAuthority;
       }
 
-      return `${username}@${parsedHostAuthority.decoded}`;
+      return `${username}@${parsedHostAuthority.canonicalStructuredAuthority}`;
     }
 
     if (parsedHostAuthority.username) {
@@ -402,7 +420,7 @@ export function buildRemoteSshUri(input: string): string | null {
   if (sourceAuthority.structured && sourceAuthority.invalidExplicitPort) {
     const remotePath = normalizeRemoteSshPath(parsed.remotePath);
     const uriPath = remotePath.startsWith('/') ? remotePath : `/${remotePath}`;
-    return `vscode-remote://ssh-remote+${sourceAuthority.decoded}${uriPath}`;
+    return `vscode-remote://ssh-remote+${sourceAuthority.canonicalStructuredAuthority}${uriPath}`;
   }
 
   return buildRemoteSshUriFromTarget(parsed, parsed.remotePath);
