@@ -187,13 +187,8 @@ function parseStrictStructuredAuthority(
   }
 
   const hasExplicitPort = Object.prototype.hasOwnProperty.call(properties, 'port');
-  const port = properties.port;
-  if (hasExplicitPort && (
-    typeof port !== 'number'
-    || !Number.isInteger(port)
-    || port < 1
-    || port > 65535
-  )) {
+  const port = parsePort(properties.port);
+  if (hasExplicitPort && port === undefined) {
     return { error: 'invalid-port' };
   }
 
@@ -204,7 +199,7 @@ function parseStrictStructuredAuthority(
     authority: {
       hostname,
       username,
-      port: hasExplicitPort ? port as number : undefined,
+      port,
       structured: true
     }
   };

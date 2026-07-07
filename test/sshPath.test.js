@@ -38,11 +38,27 @@ assert.deepStrictEqual(
 );
 assert.deepStrictEqual(
   parseRemoteSshAuthorityStrict(Buffer.from(JSON.stringify({
-    hostName: '10.7.8.9',
-    port: 70000
+    hostName: 'example.com',
+    port: '2222'
   })).toString('hex')),
-  { error: 'invalid-port' }
+  {
+    authority: {
+      hostname: 'example.com',
+      username: undefined,
+      port: 2222,
+      structured: true
+    }
+  }
 );
+for (const invalidPort of [0, 70000, 'not-a-port']) {
+  assert.deepStrictEqual(
+    parseRemoteSshAuthorityStrict(Buffer.from(JSON.stringify({
+      hostName: '10.7.8.9',
+      port: invalidPort
+    })).toString('hex')),
+    { error: 'invalid-port' }
+  );
+}
 assert.deepStrictEqual(
   parseRemoteSshAuthorityStrict(Buffer.from(JSON.stringify({
     user: 'yichi',

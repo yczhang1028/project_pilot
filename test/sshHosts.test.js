@@ -191,6 +191,29 @@ assert.strictEqual(validCustomPortMigration.state.projects[0].remotePath, '/srv/
 assert.match(validCustomPortMigration.state.projects[0].path, /^vscode-remote:\/\/ssh-remote\+/);
 assert.deepStrictEqual(validCustomPortMigration.warnings, []);
 
+const stringPortAuthority = Buffer.from(JSON.stringify({
+  hostName: 'string-port.example.com',
+  port: '2222'
+}), 'utf8').toString('hex');
+const stringPortMigration = migrateSshState({
+  projects: [{
+    id: 'string-custom-port',
+    name: 'String custom port',
+    path: `vscode-remote://ssh-remote+${stringPortAuthority}/srv/string-port`,
+    type: 'ssh'
+  }]
+});
+assert.strictEqual(stringPortMigration.state.sshHosts.length, 1);
+assert.strictEqual(stringPortMigration.state.sshHosts[0].hostname, 'string-port.example.com');
+assert.strictEqual(stringPortMigration.state.sshHosts[0].port, 2222);
+assert.strictEqual(stringPortMigration.state.projects[0].remotePath, '/srv/string-port');
+assert.strictEqual(
+  stringPortMigration.state.projects[0].sshHostId,
+  stringPortMigration.state.sshHosts[0].id
+);
+assert.match(stringPortMigration.state.projects[0].path, /^vscode-remote:\/\/ssh-remote\+/);
+assert.deepStrictEqual(stringPortMigration.warnings, []);
+
 for (const { payload, reason } of [
   { payload: { hostName: 'example.com', port: 70000 }, reason: /invalid.*port/i },
   { payload: { user: 'u', port: 2222 }, reason: /hostname/i }
