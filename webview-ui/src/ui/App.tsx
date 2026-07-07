@@ -1,34 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-
-type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
-type ProjectItem = { 
-  id?: string; 
-  name: string; 
-  path: string; 
-  description?: string; 
-  icon?: string; 
-  color?: string; 
-  tags?: string[]; 
-  group?: string; 
-  type: ProjectType;
-  isFavorite?: boolean;
-  clickCount?: number;
-  lastAccessed?: string;
-};
-type UISettings = {
-  compactMode?: boolean;
-  viewMode?: 'grid' | 'list' | 'mini';
-  selectedGroup?: string;
-};
-type ConfigSettings = {
-  autoOpenFullscreen?: boolean;
-};
-type State = { 
-  projects: ProjectItem[];
-  uiSettings?: UISettings;
-  config?: ConfigSettings;
-};
+import SshHostManager from './SshHostManager';
+import type {
+  ProjectItem,
+  ProjectType,
+  SshHost,
+  SshHostOperationResult,
+  SshHostTestResult,
+  State,
+  UISettings
+} from './model';
+import {
+  buildManagedProjectPath,
+  extractRemotePathForManagedProject,
+  normalizeUiState,
+  validateManagedProjectFields
+} from './sshHostManagerModel';
 
 declare const acquireVsCodeApi: any;
 const vscode = typeof acquireVsCodeApi !== 'undefined' ? acquireVsCodeApi() : { postMessage: console.log };
@@ -41,6 +28,81 @@ const safeDecode = (value: string): string => {
   }
 };
 
+const getStringProperty = (source: Record<string, unknown>, keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+};
+
+const decodeHexString = (value: string): string | null => {
+  if (!/^[0-9a-f]+$/i.test(value) || value.length % 2 !== 0) {
+    return null;
+  }
+
+  let decoded = '';
+  for (let index = 0; index < value.length; index += 2) {
+    decoded += String.fromCharCode(Number.parseInt(value.slice(index, index + 2), 16));
+  }
+  return decoded;
+};
+
+const parseAuthorityObject = (value: string): Record<string, unknown> | null => {
+  const decoded = safeDecode(value).trim();
+  const hexDecoded = decodeHexString(decoded);
+  const candidates = hexDecoded ? [decoded, hexDecoded.trim()] : [decoded];
+
+  for (const candidate of candidates) {
+    if (!candidate.startsWith('{')) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Not a JSON authority payload.
+    }
+  }
+
+  return null;
+};
+
+const normalizeRemoteSshAuthority = (authority: string): string => {
+  const decoded = safeDecode(authority).trim();
+  const parsed = parseAuthorityObject(decoded);
+
+  if (!parsed) {
+    return decoded;
+  }
+
+  const hostName = getStringProperty(parsed, ['hostName', 'hostname', 'host']);
+  if (!hostName) {
+    return decoded;
+  }
+
+  const username = getStringProperty(parsed, ['user', 'username']);
+  return username ? `${username}@${hostName}` : hostName;
+};
+
+const normalizeSshUserHost = (userHost: string): string => {
+  const atIndex = userHost.lastIndexOf('@');
+  if (atIndex <= 0) {
+    return normalizeRemoteSshAuthority(userHost);
+  }
+
+  const username = userHost.slice(0, atIndex);
+  const hostAuthority = normalizeRemoteSshAuthority(userHost.slice(atIndex + 1));
+  const host = hostAuthority.split('@').pop() || hostAuthority;
+  return `${username}@${host}`;
+};
+
 const parseRawSshPath = (input: string): { userHost: string; username?: string; hostname: string; remotePath: string } | null => {
   const trimmed = input.trim();
   const separatorIndex = trimmed.indexOf(':');
@@ -49,7 +111,7 @@ const parseRawSshPath = (input: string): { userHost: string; username?: string; 
     return null;
   }
 
-  const userHost = trimmed.slice(0, separatorIndex).trim();
+  const userHost = normalizeSshUserHost(trimmed.slice(0, separatorIndex).trim());
   const remotePath = trimmed.slice(separatorIndex + 1).trim();
 
   if (!userHost || !remotePath) {
@@ -79,8 +141,8 @@ const extractHostnameFromSshPath = (input: string): string | null => {
   try {
     if (input.startsWith('vscode-remote://ssh-remote+')) {
       const encoded = input.replace('vscode-remote://ssh-remote+', '').split('/')[0];
-      const decoded = decodeURIComponent(encoded);
-      return decoded.split('@')[1] || decoded;
+      const normalized = normalizeSshUserHost(encoded);
+      return normalized.split('@')[1] || normalized;
     }
 
     return parseRawSshPath(input)?.hostname || null;
@@ -395,7 +457,7 @@ type ViewMode = 'grid' | 'list' | 'mini';
 type SortBy = 'name' | 'type' | 'recent' | 'frequency';
 
 export default function App() {
-  const [state, setState] = useState<State>({ projects: [] });
+  const [state, setState] = useState<State>(() => normalizeUiState(undefined));
   const [q, setQ] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortBy, setSortBy] = useState<SortBy>('name');
@@ -410,6 +472,10 @@ export default function App() {
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
   const [showControls, setShowControls] = useState(false);
+  const [showSshHostManager, setShowSshHostManager] = useState(false);
+  const [sshHostOperationResult, setSshHostOperationResult] = useState<SshHostOperationResult | null>(null);
+  const [sshHostTestResult, setSshHostTestResult] = useState<SshHostTestResult | null>(null);
+  const [warningProject, setWarningProject] = useState<ProjectItem | null>(null);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
 
   useEffect(() => {
@@ -418,7 +484,7 @@ export default function App() {
       console.log('Project Pilot: Received message', e.data);
       if (e.data?.type === 'state') {
         console.log('Project Pilot: Setting state', e.data.payload);
-        const newState = e.data.payload as State;
+        const newState = normalizeUiState(e.data.payload as Partial<State> | undefined);
         setState(newState);
         
         // 同步UI设置到本地状态
@@ -451,6 +517,10 @@ export default function App() {
         window.dispatchEvent(new CustomEvent('remoteStatus', { detail: e.data.payload }));
       } else if (e.data?.type === 'sshTargetResolved') {
         window.dispatchEvent(new CustomEvent('sshTargetResolved', { detail: e.data.payload }));
+      } else if (e.data?.type === 'sshHostOperationResult') {
+        setSshHostOperationResult(e.data.payload as SshHostOperationResult);
+      } else if (e.data?.type === 'sshHostTestResult') {
+        setSshHostTestResult(e.data.payload as SshHostTestResult);
       }
     };
     window.addEventListener('message', listener);
@@ -654,6 +724,12 @@ export default function App() {
     vscode.postMessage({ type: 'toggleFavorite', payload: { id } });
   };
 
+  const openSshHostManager = () => {
+    setSshHostOperationResult(null);
+    setSshHostTestResult(null);
+    setShowSshHostManager(true);
+  };
+
   const isNarrowWindow = windowWidth < 760;
   const isMediumWindow = windowWidth < 1080;
   const adaptiveCompactMode = compactMode || isMediumWindow;
@@ -782,6 +858,22 @@ export default function App() {
           >
             <span className="text-base leading-none">+</span>
             <span>{showAddForm ? 'Close' : 'Add Project'}</span>
+          </button>
+          <button
+            className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
+            style={{
+              backgroundColor: secondaryPanelBackground,
+              color: theme.inputForeground,
+              borderColor: toAlpha(theme.inputBorder, 0.62)
+            }}
+            onClick={openSshHostManager}
+            title="Manage reusable SSH Hosts"
+          >
+            <span aria-hidden="true">⌁</span>
+            <span>SSH Hosts</span>
+            <span className="stat-chip px-2 py-0.5 rounded-full text-[11px]" style={{ color: theme.foreground }}>
+              {state.sshHosts.length}
+            </span>
           </button>
           <button 
             className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
@@ -1094,6 +1186,53 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {state.migrationWarnings.length > 0 && (
+        <div
+          className="glass-panel rounded-2xl border p-3 sm:p-4"
+          style={{
+            backgroundColor: toAlpha('#f59e0b', 0.08),
+            borderColor: toAlpha('#f59e0b', 0.3),
+            color: theme.foreground
+          }}
+        >
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold">Some SSH projects still use legacy paths</p>
+              <p className="text-xs mt-1" style={{ color: toAlpha(theme.foreground, 0.7) }}>
+                Review these projects and assign a reusable SSH Host when ready.
+              </p>
+            </div>
+            <span className="stat-chip px-2.5 py-1 rounded-full text-xs" style={{ color: '#f59e0b' }}>
+              {state.migrationWarnings.length} warning{state.migrationWarnings.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {state.migrationWarnings.map((warning, index) => {
+              const project = warning.projectId
+                ? state.projects.find(candidate => candidate.id === warning.projectId)
+                : state.projects.find(candidate => candidate.name === warning.projectName);
+              return (
+                <button
+                  key={`${warning.projectId ?? warning.projectName}-${index}`}
+                  className="soft-button px-3 py-2 rounded-xl text-xs text-left"
+                  style={{
+                    backgroundColor: secondaryPanelBackground,
+                    color: project ? theme.inputForeground : toAlpha(theme.foreground, 0.55),
+                    borderColor: toAlpha('#f59e0b', 0.34),
+                    cursor: project ? 'pointer' : 'default'
+                  }}
+                  disabled={!project}
+                  onClick={() => project && setWarningProject(project)}
+                  title={warning.message}
+                >
+                  {project ? 'Review' : 'Missing'} · {warning.projectName}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       
       {/* Projects Display */}
       <div 
@@ -1180,6 +1319,8 @@ export default function App() {
                       compactMode={adaptiveCompactMode}
                       theme={theme}
                       allGroups={allGroups}
+                      sshHosts={state.sshHosts}
+                      onManageSshHosts={openSshHostManager}
                       onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
                       onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
                       onOpen={() => {
@@ -1203,6 +1344,8 @@ export default function App() {
                 compactMode={adaptiveCompactMode}
                 theme={theme}
                 allGroups={allGroups}
+                sshHosts={state.sshHosts}
+                onManageSshHosts={openSshHostManager}
                 onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
                 onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
                 onOpen={() => {
@@ -1240,20 +1383,56 @@ export default function App() {
           }}
           theme={theme}
           allGroups={allGroups}
+          sshHosts={state.sshHosts}
+          onManageSshHosts={openSshHostManager}
           onSave={createNewProject}
           onCancel={() => setNewProjectType(null)}
+        />
+      )}
+      {warningProject && (
+        <EditModal
+          project={warningProject}
+          theme={theme}
+          allGroups={allGroups}
+          sshHosts={state.sshHosts}
+          onManageSshHosts={openSshHostManager}
+          onSave={updatedProject => {
+            vscode.postMessage({ type: 'addOrUpdate', payload: updatedProject });
+            setWarningProject(null);
+          }}
+          onCancel={() => setWarningProject(null)}
+        />
+      )}
+      {showSshHostManager && (
+        <SshHostManager
+          hosts={state.sshHosts}
+          projects={state.projects}
+          theme={theme}
+          operationResult={sshHostOperationResult}
+          testResult={sshHostTestResult}
+          onPostMessage={message => {
+            if (message.type === 'testSshHost') {
+              setSshHostTestResult(null);
+            } else {
+              setSshHostOperationResult(null);
+            }
+            vscode.postMessage(message);
+          }}
+          onClose={() => setShowSshHostManager(false)}
         />
       )}
     </div>
   );
 }
 
-function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, onOpen, onToggleFavorite }: { 
+function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSshHosts, onChange, onDelete, onOpen, onToggleFavorite }: {
   p: ProjectItem; 
   viewMode: ViewMode;
   compactMode: boolean;
   theme: any;
   allGroups: string[];
+  sshHosts: SshHost[];
+  onManageSshHosts: () => void;
   onChange: (p: ProjectItem) => void; 
   onDelete: () => void;
   onOpen: () => void;
@@ -1358,6 +1537,8 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             project={p}
             theme={theme}
             allGroups={allGroups ? allGroups : []}
+            sshHosts={sshHosts}
+            onManageSshHosts={onManageSshHosts}
             onSave={(updatedProject) => {
               onChange(updatedProject);
               setIsEditing(false);
@@ -1477,6 +1658,8 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
             project={p}
             theme={theme}
             allGroups={allGroups ? allGroups : []}
+            sshHosts={sshHosts}
+            onManageSshHosts={onManageSshHosts}
             onSave={(updatedProject) => {
               onChange(updatedProject);
               setIsEditing(false);
@@ -1692,6 +1875,8 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
           project={p} 
           theme={theme}
           allGroups={allGroups}
+          sshHosts={sshHosts}
+          onManageSshHosts={onManageSshHosts}
           onSave={(updatedProject) => {
             onChange(updatedProject);
             setIsEditing(false);
@@ -1703,10 +1888,12 @@ function Card({ p, viewMode, compactMode, theme, allGroups, onChange, onDelete, 
   );
 }
 
-function EditModal({ project, theme, allGroups, onSave, onCancel }: {
+function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSave, onCancel }: {
   project: ProjectItem;
   theme: any;
   allGroups: string[];
+  sshHosts: SshHost[];
+  onManageSshHosts: () => void;
   onSave: (project: ProjectItem) => void;
   onCancel: () => void;
 }) {
@@ -1725,6 +1912,23 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
   const [isResolvingSsh, setIsResolvingSsh] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const sshResolveRequestRef = useRef(0);
+  const usesManagedSshFields = isSshProjectType(editedProject.type) && (
+    isNewProject
+    || !isSshProjectType(project.type)
+    || project.sshHostId !== undefined
+    || project.remotePath !== undefined
+  );
+  const applyManagedSshFields = useCallback((sshHostId: string, remotePath: string) => {
+    setEditedProject(prev => {
+      const host = sshHosts.find(candidate => candidate.id === sshHostId);
+      return {
+        ...prev,
+        sshHostId: sshHostId || undefined,
+        remotePath,
+        path: host && remotePath.trim() ? buildManagedProjectPath(host, remotePath) : ''
+      };
+    });
+  }, [sshHosts]);
   const pathAnalysis = useMemo(
     () => analyzeProjectPath(editedProject.path, editedProject.type),
     [editedProject.path, editedProject.type]
@@ -1734,8 +1938,21 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     [editedProject.type, remoteStatus]
   );
   const saveValidationError = useMemo(
-    () => getProjectValidationError(editedProject, remoteStatus),
-    [editedProject, remoteStatus]
+    () => {
+      if (!editedProject.name.trim()) {
+        return 'Project name cannot be empty.';
+      }
+      if (usesManagedSshFields) {
+        return validateManagedProjectFields(
+          editedProject.type,
+          editedProject.sshHostId,
+          editedProject.remotePath,
+          sshHosts
+        );
+      }
+      return getProjectValidationError(editedProject, remoteStatus);
+    },
+    [editedProject, remoteStatus, sshHosts, usesManagedSshFields]
   );
   const applyPathValue = useCallback((nextPath: string) => {
     const analysis = analyzeProjectPath(nextPath, editedProject.type);
@@ -1751,7 +1968,18 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
     setEditedProject(prev => {
       const nextType = detectedType || prev.type;
       const analysis = analyzeProjectPath(nextPath, nextType);
-      const nextProject = { ...prev, path: nextPath, type: nextType };
+      const managedRemotePath = usesManagedSshFields && isSshProjectType(nextType)
+        ? extractRemotePathForManagedProject(nextPath)
+        : null;
+      const selectedHost = sshHosts.find(candidate => candidate.id === prev.sshHostId);
+      const nextProject = managedRemotePath
+        ? {
+          ...prev,
+          path: selectedHost ? buildManagedProjectPath(selectedHost, managedRemotePath) : '',
+          remotePath: managedRemotePath,
+          type: nextType
+        }
+        : { ...prev, path: nextPath, type: nextType };
       const nextName = suggestedName || analysis?.suggestedName;
 
       if (!hasManuallyEditedName && nextName) {
@@ -1760,10 +1988,17 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
 
       return nextProject;
     });
-  }, [hasManuallyEditedName]);
+  }, [hasManuallyEditedName, sshHosts, usesManagedSshFields]);
   const applyCanonicalSshPath = useCallback((nextPath: string) => {
+    const managedRemotePath = usesManagedSshFields
+      ? extractRemotePathForManagedProject(nextPath)
+      : null;
+    if (managedRemotePath) {
+      applyManagedSshFields(editedProject.sshHostId ?? '', managedRemotePath);
+      return;
+    }
     setEditedProject(prev => ({ ...prev, path: nextPath }));
-  }, []);
+  }, [applyManagedSshFields, editedProject.sshHostId, usesManagedSshFields]);
   const applySuggestedProjectType = useCallback(() => {
     if (!pathAnalysis?.suggestedType || pathAnalysis.suggestedType === editedProject.type) {
       return;
@@ -2127,13 +2362,46 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
           </div>
           
           <div>
-            <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>Path</label>
+            {usesManagedSshFields && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>SSH Host</label>
+                <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+                  <select
+                    className="soft-input flex-1 min-w-0 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
+                    style={modalInputStyle}
+                    value={editedProject.sshHostId ?? ''}
+                    onChange={event => applyManagedSshFields(event.target.value, editedProject.remotePath ?? '')}
+                  >
+                    <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Select an SSH Host</option>
+                    {sshHosts.map(host => (
+                      <option key={host.id} value={host.id} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>
+                        {host.name} · {host.username ? `${host.username}@` : ''}{host.hostname}{host.port ? `:${host.port}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm whitespace-nowrap"
+                    style={modalSecondaryButtonStyle}
+                    onClick={onManageSshHosts}
+                    title="Create or edit reusable SSH Hosts"
+                  >
+                    + New Host
+                  </button>
+                </div>
+                {sshHosts.length === 0 && (
+                  <p className="text-xs mt-1.5" style={{ color: '#f59e0b' }}>Create an SSH Host before saving this project.</p>
+                )}
+              </div>
+            )}
+            <label className="block text-sm font-medium mb-1" style={{ color: theme.foreground }}>{usesManagedSshFields ? 'Remote Path' : 'Path'}</label>
             <div className="flex gap-2 flex-wrap sm:flex-nowrap">
               <input 
                 className="soft-input flex-1 min-w-0 px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
                 style={modalInputStyle}
                 placeholder={
-                  editedProject.type === 'workspace'
+                  usesManagedSshFields
+                    ? editedProject.type === 'ssh-workspace' ? '/path/to/project.code-workspace' : '/path/to/project'
+                    : editedProject.type === 'workspace'
                     ? 'Select .code-workspace file'
                     : editedProject.type === 'local'
                       ? 'Select project folder'
@@ -2141,8 +2409,10 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
                         ? remoteStatus.currentPath
                         : expectedPathExample
                 }
-                value={editedProject.path}
-                onChange={e => applyPathValue(e.target.value)}
+                value={usesManagedSshFields ? editedProject.remotePath ?? '' : editedProject.path}
+                onChange={e => usesManagedSshFields
+                  ? applyManagedSshFields(editedProject.sshHostId ?? '', e.target.value)
+                  : applyPathValue(e.target.value)}
               />
               {editedProject.type === 'local' && (
                 <button
@@ -2362,7 +2632,19 @@ function EditModal({ project, theme, allGroups, onSave, onCancel }: {
               className="soft-input w-full px-3 py-2.5 border rounded-xl focus:ring-2 focus:border-transparent"
               style={modalInputStyle}
               value={editedProject.type}
-              onChange={e => setEditedProject({ ...editedProject, type: e.target.value as ProjectType })}
+              onChange={e => {
+                const nextType = e.target.value as ProjectType;
+                setEditedProject(prev => {
+                  if (!isSshProjectType(nextType)) {
+                    const { sshHostId: _sshHostId, remotePath: _remotePath, ...localProject } = prev;
+                    return { ...localProject, type: nextType };
+                  }
+                  if (!isSshProjectType(prev.type)) {
+                    return { ...prev, type: nextType, path: '', sshHostId: undefined, remotePath: '' };
+                  }
+                  return { ...prev, type: nextType };
+                });
+              }}
             >
               <option value="local" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Local Folder</option>
               <option value="workspace" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Workspace File</option>
