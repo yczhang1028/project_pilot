@@ -82,6 +82,32 @@ export class ConfigStore {
       throw new Error('Invalid config state: projects must be an array');
     }
 
+    for (const [index, value] of (incoming as { projects: unknown[] }).projects.entries()) {
+      if (!value || typeof value !== 'object') continue;
+      const project = value as Partial<ProjectItem>;
+      const projectName = typeof project.name === 'string' && project.name
+        ? project.name
+        : `at index ${index}`;
+      const hasSshHostId = project.sshHostId !== undefined;
+      const hasRemotePath = project.remotePath !== undefined;
+      const isSshProject = project.type === 'ssh' || project.type === 'ssh-workspace';
+
+      if (!isSshProject && (hasSshHostId || hasRemotePath)) {
+        throw new Error(`Project "${projectName}" is non-SSH and cannot include sshHostId or remotePath`);
+      }
+      if (!isSshProject) continue;
+      if (hasSshHostId !== hasRemotePath) {
+        const missingField = hasSshHostId ? 'remotePath' : 'sshHostId';
+        throw new Error(`SSH project "${projectName}" is missing ${missingField}`);
+      }
+      if (hasSshHostId && (typeof project.sshHostId !== 'string' || !project.sshHostId.trim())) {
+        throw new Error(`Managed SSH project "${projectName}" must reference an SSH Host`);
+      }
+      if (hasRemotePath && typeof project.remotePath !== 'string') {
+        throw new Error(`SSH project "${projectName}" remotePath must be a string`);
+      }
+    }
+
     const migration = migrateSshState(incoming as SshStateLike);
     const sshHosts: SshHost[] = [];
     for (const host of migration.state.sshHosts) {

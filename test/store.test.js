@@ -272,6 +272,60 @@ async function expectReject(action, pattern) {
   }
 
   {
+    const { store } = await createStore(baseState([], [
+      { id: 'known', name: 'Known', hostname: 'known.example.com', username: 'dev' }
+    ]));
+    const before = JSON.parse(JSON.stringify(store.state));
+
+    await expectReject(
+      () => store.upsertProject({
+        id: 'partial-host',
+        name: 'Missing Remote Path',
+        path: 'dev@legacy.example.com:/repo',
+        type: 'ssh',
+        sshHostId: 'missing'
+      }),
+      /Missing Remote Path.*remotePath/i
+    );
+    assert.deepStrictEqual(store.state, before, 'an sshHostId-only upsert is atomic');
+
+    await expectReject(
+      () => store.upsertProject({
+        id: 'partial-path',
+        name: 'Missing Host Reference',
+        path: 'dev@legacy.example.com:/repo',
+        type: 'ssh',
+        remotePath: '/repo'
+      }),
+      /Missing Host Reference.*sshHostId/i
+    );
+    assert.deepStrictEqual(store.state, before, 'a remotePath-only upsert is atomic');
+
+    await expectReject(
+      () => store.upsertProject({
+        id: 'local-managed-field',
+        name: 'Local With Host',
+        path: 'C:\\repo',
+        type: 'local',
+        sshHostId: 'known'
+      }),
+      /Local With Host.*non-SSH/i
+    );
+    assert.deepStrictEqual(store.state, before, 'managed SSH fields on local projects are rejected atomically');
+
+    await store.upsertProject({
+      id: 'legacy-upsert',
+      name: 'Legacy Upsert',
+      path: 'dev@legacy.example.com:/repo',
+      type: 'ssh'
+    });
+    const legacy = store.state.projects.find(project => project.id === 'legacy-upsert');
+    assert.strictEqual(legacy.remotePath, '/repo');
+    assert.ok(legacy.sshHostId);
+    assert.strictEqual(legacy.path, 'dev@legacy.example.com:/repo');
+  }
+
+  {
     const { store, configPath } = await createStore({
       projects: [{ id: 'bad', name: 'Bad', path: 'broken', type: 'ssh' }]
     });
@@ -289,6 +343,46 @@ async function expectReject(action, pattern) {
     assert.deepStrictEqual(store.migrationWarnings, beforeWarnings);
     assert.deepStrictEqual(readJson(configPath), beforeDisk);
     assert.strictEqual(notifications, 0);
+  }
+
+  {
+    const malformed = { id: 'warning', name: 'Warning', path: 'broken', type: 'ssh' };
+    const { store, configPath } = await createStore({ projects: [malformed] });
+    const beforeState = JSON.parse(JSON.stringify(store.state));
+    const beforeWarnings = JSON.parse(JSON.stringify(store.migrationWarnings));
+
+    const importUri = uri('C:\\imports\\partial-v2.json');
+    putJson(importUri.fsPath, baseState([
+      {
+        id: 'import-partial',
+        name: 'Import Missing Host',
+        path: 'dev@import.example.com:/repo',
+        type: 'ssh',
+        remotePath: '/repo'
+      }
+    ]));
+    await expectReject(() => store.importFromFile(importUri), /Import Missing Host.*sshHostId/i);
+    assert.deepStrictEqual(store.state, beforeState, 'invalid v2 import leaves state unchanged');
+    assert.deepStrictEqual(store.migrationWarnings, beforeWarnings, 'invalid v2 import leaves warnings unchanged');
+
+    putJson(configPath, baseState([
+      {
+        id: 'reload-partial',
+        name: 'Reload Missing Path',
+        path: 'dev@reload.example.com:/repo',
+        type: 'ssh-workspace',
+        sshHostId: 'missing'
+      }
+    ]));
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+      await expectReject(() => store.reload(), /Reload Missing Path.*remotePath/i);
+    } finally {
+      console.error = originalConsoleError;
+    }
+    assert.deepStrictEqual(store.state, beforeState, 'invalid v2 reload leaves state unchanged');
+    assert.deepStrictEqual(store.migrationWarnings, beforeWarnings, 'invalid v2 reload leaves warnings unchanged');
   }
 
   {
