@@ -171,7 +171,7 @@ The current `OutlineMode` value `target` is renamed to `host`, with persisted `t
 
 Favorites and Recent preserve their current flat structure. In `By Host`, the `All Projects` section contains:
 
-- One expandable node for each referenced SSH Host.
+- One expandable node for every stored SSH Host, including Hosts with zero linked projects.
 - A display-only `Local` pseudo-host for local folders and local workspace files.
 - Linked project children under each node.
 
