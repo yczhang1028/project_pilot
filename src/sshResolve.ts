@@ -301,8 +301,14 @@ function classifyProbeFailure(
     return 'ssh-not-found';
   }
 
-  const diagnosticText = `${error.stderr}\n${error.message}`;
-  if (error.killed || error.code === 'ETIMEDOUT' || /timed? out|timeout/i.test(diagnosticText)) {
+  if (error.killed || error.code === 'ETIMEDOUT') {
+    return 'timeout';
+  }
+
+  const diagnosticText = error.stderr.trim() || error.message
+    .replace(/^Command failed:[^\r\n]*(?:\r?\n)?/i, '')
+    .trim();
+  if (/\btimed out\b/i.test(diagnosticText)) {
     return 'timeout';
   }
   if (/could not resolve hostname|name or service not known|no such host/i.test(diagnosticText)) {

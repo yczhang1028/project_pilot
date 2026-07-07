@@ -15,6 +15,15 @@ function sshError(message, fields = {}) {
   return Object.assign(new Error(message), fields);
 }
 
+function realSshFailure(stderr, fields = {}) {
+  const command = 'ssh -T -o BatchMode=yes -o ConnectTimeout=5 -- broken.example exit';
+  return sshError(`Command failed: ${command}\n${stderr}`, {
+    code: 255,
+    stderr,
+    ...fields
+  });
+}
+
 function loadSshResolveWithMocks({
   sshConfigStdout = '',
   localUsername = 'yiczhang',
@@ -166,19 +175,23 @@ async function testFailureClassifications() {
     expectedCode: 'ssh-not-found'
   });
   await assertProbeFailure({
-    error: sshError('ssh failed', { stderr: 'ssh: Could not resolve hostname missing: Name or service not known' }),
+    error: realSshFailure('ssh: Could not resolve hostname missing: Name or service not known'),
     expectedCode: 'dns'
   });
   await assertProbeFailure({
-    error: sshError('Command timed out', { code: 'ETIMEDOUT', killed: true }),
+    error: realSshFailure('', { code: 'ETIMEDOUT', killed: true }),
     expectedCode: 'timeout'
   });
   await assertProbeFailure({
-    error: sshError('ssh failed', { stderr: 'REMOTE HOST IDENTIFICATION HAS CHANGED!' }),
+    error: realSshFailure('ssh: connect to host slow.example port 22: Connection timed out'),
+    expectedCode: 'timeout'
+  });
+  await assertProbeFailure({
+    error: realSshFailure('REMOTE HOST IDENTIFICATION HAS CHANGED!'),
     expectedCode: 'host-key'
   });
   await assertProbeFailure({
-    error: sshError('ssh failed', { stderr: 'Permission denied (publickey,password).' }),
+    error: realSshFailure('Permission denied (publickey,password).'),
     expectedCode: 'auth',
     messagePattern: /password-only Hosts cannot pass.*BatchMode/i
   });
@@ -191,7 +204,7 @@ async function testFailureClassifications() {
     expectedCode: 'auth'
   });
   await assertProbeFailure({
-    error: sshError('ssh failed', { stderr: 'subsystem request failed on channel 0' }),
+    error: realSshFailure('subsystem request failed on channel 0'),
     expectedCode: 'remote-command',
     messagePattern: /transport and authentication may have succeeded.*remote command failed or is restricted/i
   });
