@@ -2,8 +2,10 @@ const assert = require('assert');
 const { buildRemoteSshUriFromTarget } = require('../out/sshPath');
 const {
   materializeRuntimeProject,
+  resolveCurrentProject,
   resolveSshProjectRuntime,
   resolveSshTargetPayload,
+  testCurrentSshProjectConnection,
   testSshProjectConnection
 } = require('../out/sshProjectRuntime');
 
@@ -87,6 +89,51 @@ assert.deepStrictEqual(
   { hostname: 'raw.example.com', username: 'bob' }
 );
 
+const validStructuredRawAuthority = Buffer.from(JSON.stringify({
+  hostName: 'structured.example.com',
+  user: 'carol',
+  port: 2222
+}), 'utf8').toString('hex');
+const validStructuredRawRuntime = resolveSshProjectRuntime({
+  id: 'structured-raw',
+  name: 'Structured raw',
+  path: `${validStructuredRawAuthority}:/srv/structured`,
+  type: 'ssh'
+}, []);
+assert.deepStrictEqual(
+  (({ hostname, username, port }) => ({ hostname, username, port }))(validStructuredRawRuntime.host),
+  { hostname: 'structured.example.com', username: 'carol', port: 2222 }
+);
+const prefixedStructuredAuthority = Buffer.from(JSON.stringify({
+  hostName: 'prefixed.example.com',
+  port: 2200
+}), 'utf8').toString('hex');
+const prefixedStructuredRuntime = resolveSshProjectRuntime({
+  id: 'prefixed-structured-raw',
+  name: 'Prefixed structured raw',
+  path: `dave@${prefixedStructuredAuthority}:/srv/prefixed`,
+  type: 'ssh'
+}, []);
+assert.deepStrictEqual(
+  (({ hostname, username, port }) => ({ hostname, username, port }))(prefixedStructuredRuntime.host),
+  { hostname: 'prefixed.example.com', username: 'dave', port: 2200 }
+);
+
+const invalidStructuredRawAuthority = Buffer.from(JSON.stringify({
+  hostName: 'bad.example.com',
+  port: 70000
+}), 'utf8').toString('hex');
+const invalidStructuredRawProject = {
+  id: 'invalid-structured-raw',
+  name: 'Invalid structured raw',
+  path: `mallory@${invalidStructuredRawAuthority}:/srv/bad`,
+  type: 'ssh'
+};
+assert.throws(
+  () => resolveSshProjectRuntime(invalidStructuredRawProject, []),
+  /invalid SSH port/i
+);
+
 assert.throws(
   () => resolveSshProjectRuntime({ ...managedProject, sshHostId: 'deleted-host' }, [currentHost]),
   /SSH Host deleted-host was not found/
@@ -94,6 +141,28 @@ assert.throws(
 assert.throws(
   () => resolveSshProjectRuntime({ ...managedProject, sshHostId: undefined }, []),
   /missing sshHostId/
+);
+
+const currentStoredProject = { ...managedProject, path: 'current snapshot' };
+assert.strictEqual(
+  resolveCurrentProject({ ...managedProject }, [currentStoredProject]),
+  currentStoredProject,
+  'a known project ID resolves to the current Store object'
+);
+const idlessDraft = { ...managedProject, id: undefined };
+assert.strictEqual(
+  resolveCurrentProject(idlessDraft, [currentStoredProject]),
+  idlessDraft,
+  'a genuinely ID-less draft can be resolved without Store membership'
+);
+assert.throws(
+  () => resolveCurrentProject({ ...managedProject, id: 'deleted-project' }, [currentStoredProject]),
+  /Project deleted-project no longer exists/
+);
+assert.throws(
+  () => resolveCurrentProject({ ...managedProject, id: '' }, [currentStoredProject]),
+  /Project .* no longer exists/,
+  'an explicitly empty ID is stale/invalid, not a genuinely ID-less draft'
 );
 
 (async () => {
@@ -104,6 +173,78 @@ assert.throws(
   assert.strictEqual(managedResolution.success, true);
   assert.strictEqual(managedResolution.requestedPath, portRuntime.compatibilityPath);
   assert.doesNotMatch(managedResolution.requestedPath, /192\.0\.2\.1|stale/);
+  assert.strictEqual(managedResolution.requestId, undefined);
+
+  const correlatedResolution = await resolveSshTargetPayload({
+    path: managedProject.path,
+    project: managedProject,
+    requestId: 42
+  }, [customPortHost]);
+  assert.strictEqual(correlatedResolution.success, true);
+  assert.strictEqual(correlatedResolution.requestId, 42);
+
+  const throwingAccessorPayload = {};
+  Object.defineProperty(throwingAccessorPayload, 'path', {
+    enumerable: true,
+    get() {
+      throw new Error('path getter must not run');
+    }
+  });
+  const hostilePayloads = [
+    null,
+    undefined,
+    7,
+    'not a payload',
+    throwingAccessorPayload,
+    new Proxy({ path: 'host:/repo' }, {
+      getOwnPropertyDescriptor() {
+        throw new Error('descriptor unavailable');
+      }
+    }),
+    new Proxy({ path: 'host:/repo' }, {
+      getPrototypeOf() {
+        throw new Error('prototype unavailable');
+      }
+    }),
+    {
+      path: 'host:/repo',
+      requestId: 77,
+      project: { name: 123, path: 'host:/repo', type: 'ssh' }
+    }
+  ];
+  for (const payload of hostilePayloads) {
+    const result = await resolveSshTargetPayload(payload, [customPortHost]);
+    assert.strictEqual(result.success, false, 'invalid payloads return a controlled failure');
+  }
+  const invalidProjectResult = await resolveSshTargetPayload(hostilePayloads.at(-1), [customPortHost]);
+  assert.strictEqual(invalidProjectResult.requestId, 77, 'a safe request ID is retained on validation failure');
+
+  let invalidStructuredProbeCalled = false;
+  const invalidStructuredProbe = await testSshProjectConnection(
+    invalidStructuredRawProject,
+    [],
+    async () => {
+      invalidStructuredProbeCalled = true;
+      return { success: true, code: 'ok', message: 'must not probe' };
+    }
+  );
+  assert.strictEqual(invalidStructuredProbe.success, false);
+  assert.match(invalidStructuredProbe.message, /invalid SSH port/i);
+  assert.strictEqual(invalidStructuredProbeCalled, false);
+
+  let staleProjectProbeCalled = false;
+  const staleProjectTest = await testCurrentSshProjectConnection(
+    { ...managedProject, id: 'deleted-project' },
+    [currentStoredProject],
+    [customPortHost],
+    async () => {
+      staleProjectProbeCalled = true;
+      return { success: true, code: 'ok', message: 'must not probe' };
+    }
+  );
+  assert.strictEqual(staleProjectTest.success, false);
+  assert.match(staleProjectTest.message, /Project deleted-project no longer exists/);
+  assert.strictEqual(staleProjectProbeCalled, false);
 
   let probedHost;
   const failedProbe = await testSshProjectConnection(

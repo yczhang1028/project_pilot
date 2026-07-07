@@ -5,7 +5,6 @@ import {
   type SshHost
 } from './sshHosts';
 import {
-  buildRemoteSshUri,
   buildRemoteSshUriFromTarget,
   normalizeRemoteSshPath,
   parseRawSshPath,
@@ -27,6 +26,147 @@ export type SshProbe = (host: SshHost) => Promise<SshProbeResult>;
 export interface SshResolutionPayload {
   path: string;
   project?: ProjectItem;
+  requestId?: number;
+}
+
+export interface SshResolutionPayloadResult extends SshResolutionResult {
+  requestId?: number;
+}
+
+type OwnDataProperty =
+  | { kind: 'missing' }
+  | { kind: 'invalid' }
+  | { kind: 'value'; value: unknown };
+
+function asPlainRecord(value: unknown): object | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
+  }
+  try {
+    if (Array.isArray(value)) {
+      return undefined;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readOwnDataProperty(record: object, key: PropertyKey): OwnDataProperty {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (!descriptor) {
+      return { kind: 'missing' };
+    }
+    return 'value' in descriptor
+      ? { kind: 'value', value: descriptor.value }
+      : { kind: 'invalid' };
+  } catch {
+    return { kind: 'invalid' };
+  }
+}
+
+function readOptionalString(record: object, key: string): string | undefined | null {
+  const property = readOwnDataProperty(record, key);
+  if (property.kind === 'missing' || (property.kind === 'value' && property.value === undefined)) {
+    return undefined;
+  }
+  return property.kind === 'value' && typeof property.value === 'string'
+    ? property.value
+    : null;
+}
+
+function sanitizeProject(value: unknown): ProjectItem | undefined {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  const name = readOwnDataProperty(record, 'name');
+  const path = readOwnDataProperty(record, 'path');
+  const type = readOwnDataProperty(record, 'type');
+  if (
+    name.kind !== 'value'
+    || typeof name.value !== 'string'
+    || path.kind !== 'value'
+    || typeof path.value !== 'string'
+    || type.kind !== 'value'
+    || (type.value !== 'ssh' && type.value !== 'ssh-workspace')
+  ) {
+    return undefined;
+  }
+
+  const id = readOptionalString(record, 'id');
+  const sshHostId = readOptionalString(record, 'sshHostId');
+  const remotePath = readOptionalString(record, 'remotePath');
+  if (id === null || sshHostId === null || remotePath === null) {
+    return undefined;
+  }
+  return {
+    name: name.value,
+    path: path.value,
+    type: type.value,
+    ...(id !== undefined ? { id } : {}),
+    ...(sshHostId !== undefined ? { sshHostId } : {}),
+    ...(remotePath !== undefined ? { remotePath } : {})
+  };
+}
+
+function sanitizeResolutionPayload(value: unknown):
+  | { valid: true; path: string; project?: ProjectItem; requestId?: number }
+  | { valid: false; requestId?: number } {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return { valid: false };
+  }
+
+  const requestIdProperty = readOwnDataProperty(record, 'requestId');
+  let requestId: number | undefined;
+  if (requestIdProperty.kind === 'invalid') {
+    return { valid: false };
+  }
+  if (requestIdProperty.kind === 'value') {
+    if (typeof requestIdProperty.value !== 'number' || !Number.isSafeInteger(requestIdProperty.value)) {
+      return { valid: false };
+    }
+    requestId = requestIdProperty.value;
+  }
+
+  const pathProperty = readOwnDataProperty(record, 'path');
+  if (pathProperty.kind !== 'value' || typeof pathProperty.value !== 'string') {
+    return { valid: false, ...(requestId !== undefined ? { requestId } : {}) };
+  }
+
+  const projectProperty = readOwnDataProperty(record, 'project');
+  if (projectProperty.kind === 'invalid') {
+    return { valid: false, ...(requestId !== undefined ? { requestId } : {}) };
+  }
+  let project: ProjectItem | undefined;
+  if (projectProperty.kind === 'value' && projectProperty.value !== undefined) {
+    project = sanitizeProject(projectProperty.value);
+    if (!project) {
+      return { valid: false, ...(requestId !== undefined ? { requestId } : {}) };
+    }
+  }
+
+  return {
+    valid: true,
+    path: pathProperty.value,
+    ...(project ? { project } : {}),
+    ...(requestId !== undefined ? { requestId } : {})
+  };
+}
+
+function invalidResolutionPayload(requestId?: number, message = 'Invalid SSH resolution payload.'): SshResolutionPayloadResult {
+  return {
+    success: false,
+    requestedPath: '',
+    normalizedPath: '',
+    isWindowsRemotePath: false,
+    message,
+    warnings: [],
+    ...(requestId !== undefined ? { requestId } : {})
+  };
 }
 
 function isSshProject(project: ProjectItem): boolean {
@@ -95,17 +235,21 @@ function parseLegacyRawPath(project: ProjectItem): ResolvedSshProjectRuntime {
     throw new Error(`Invalid SSH project path for "${project.name}"`);
   }
   const remotePath = normalizeRemoteSshPath(parsed.remotePath);
+  const strictAuthority = parseRemoteSshAuthorityStrict(parsed.userHost);
+  if ('error' in strictAuthority) {
+    throw new Error(
+      `Invalid SSH project path for "${project.name}": ${strictAuthority.error === 'invalid-port' ? 'invalid SSH port' : 'missing hostname'}`
+    );
+  }
+  const authority = strictAuthority.authority;
   const host: SshHost = {
     id: `legacy:${project.id ?? project.name}`,
-    name: project.name || parsed.hostname,
-    hostname: parsed.hostname,
-    ...(parsed.username ? { username: parsed.username } : {}),
-    ...(parsed.port !== undefined ? { port: parsed.port } : {})
+    name: project.name || authority.hostname,
+    hostname: authority.hostname,
+    ...(authority.username ? { username: authority.username } : {}),
+    ...(authority.port !== undefined ? { port: authority.port } : {})
   };
-  const remoteUri = buildRemoteSshUri(project.path);
-  if (!remoteUri) {
-    throw new Error(`Invalid SSH project path for "${project.name}"`);
-  }
+  const remoteUri = buildRemoteSshUriFromTarget(host, remotePath);
 
   return {
     managed: false,
@@ -163,24 +307,44 @@ export function materializeRuntimeProjects(
   return projects.map(project => materializeRuntimeProject(project, hosts));
 }
 
+export function resolveCurrentProject(
+  project: ProjectItem,
+  currentProjects: readonly ProjectItem[]
+): ProjectItem {
+  if (project.id === undefined) {
+    return project;
+  }
+  const current = currentProjects.find(candidate => candidate.id === project.id);
+  if (!current) {
+    throw new Error(`Project ${project.id || 'with empty ID'} no longer exists`);
+  }
+  return current;
+}
+
 export async function resolveSshTargetPayload(
-  payload: SshResolutionPayload,
+  value: unknown,
   hosts: readonly SshHost[]
-): Promise<SshResolutionResult> {
+): Promise<SshResolutionPayloadResult> {
+  const payload = sanitizeResolutionPayload(value);
+  if (!payload.valid) {
+    return invalidResolutionPayload(payload.requestId);
+  }
   try {
     const input = payload.project && isSshProject(payload.project)
       ? resolveSshProjectRuntime(payload.project, hosts).compatibilityPath
       : payload.path;
-    return await resolveSshTarget(input);
-  } catch (error) {
-    const requestedPath = typeof payload.path === 'string' ? payload.path.trim() : '';
     return {
-      success: false,
-      requestedPath,
-      normalizedPath: requestedPath,
-      isWindowsRemotePath: false,
-      message: error instanceof Error ? error.message : 'SSH path could not be resolved.',
-      warnings: []
+      ...await resolveSshTarget(input),
+      ...(payload.requestId !== undefined ? { requestId: payload.requestId } : {})
+    };
+  } catch (error) {
+    return {
+      ...invalidResolutionPayload(
+        payload.requestId,
+        error instanceof Error ? error.message : 'SSH path could not be resolved.'
+      ),
+      requestedPath: payload.path.trim(),
+      normalizedPath: payload.path.trim()
     };
   }
 }
@@ -212,6 +376,27 @@ export async function testSshProjectConnection(
       success: false,
       code: 'remote-command',
       message: error instanceof Error ? error.message : 'SSH connection test failed.'
+    };
+  }
+}
+
+export async function testCurrentSshProjectConnection(
+  project: ProjectItem,
+  currentProjects: readonly ProjectItem[],
+  hosts: readonly SshHost[],
+  probe: SshProbe = testSshHostConnection
+): Promise<SshProbeResult> {
+  try {
+    return await testSshProjectConnection(
+      resolveCurrentProject(project, currentProjects),
+      hosts,
+      probe
+    );
+  } catch (error) {
+    return {
+      success: false,
+      code: 'remote-command',
+      message: error instanceof Error ? error.message : 'The selected project no longer exists.'
     };
   }
 }

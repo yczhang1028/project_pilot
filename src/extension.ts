@@ -31,8 +31,10 @@ import {
 } from './sshPath';
 import {
   materializeRuntimeProjects,
+  resolveCurrentProject,
   resolveSshProjectRuntime,
   resolveSshTargetPayload,
+  testCurrentSshProjectConnection,
   testSshProjectConnection
 } from './sshProjectRuntime';
 
@@ -146,7 +148,13 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('projectPilot.openProject', async (item?: ProjectItem) => {
       const target = item ?? (await outlineProvider.pickProject());
       if (!target) { return; }
-      openProject(getCurrentProject(target));
+      try {
+        openProject(resolveCurrentProject(target, store.state.projects));
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          error instanceof Error ? error.message : 'The selected project no longer exists'
+        );
+      }
     }),
     vscode.commands.registerCommand('projectPilot.addLocalProject', async () => {
       const uri = await vscode.window.showOpenDialog({ 
@@ -604,11 +612,11 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('projectPilot.copyProjectPath', async (item?: any) => {
-      if (!item?.project?.path) {
+      if (!item?.project) {
         return;
       }
       try {
-        const project = getCurrentProject(item.project);
+        const project = resolveCurrentProject(item.project, store.state.projects);
         const copyPath = (project.type === 'ssh' || project.type === 'ssh-workspace')
           ? resolveSshProjectRuntime(project, store.state.sshHosts).compatibilityPath
           : project.path;
@@ -967,13 +975,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  function getCurrentProject(item: ProjectItem): ProjectItem {
-    if (!item.id) {
-      return item;
-    }
-    return store.state.projects.find(candidate => candidate.id === item.id) ?? item;
-  }
-
   function getRuntimeDisplayPath(project: ProjectItem): string {
     if (project.type !== 'ssh' && project.type !== 'ssh-workspace') {
       return project.path;
@@ -1031,7 +1032,14 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   async function testSshConnection(project: ProjectItem) {
-    project = getCurrentProject(project);
+    try {
+      project = resolveCurrentProject(project, store.state.projects);
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        error instanceof Error ? error.message : 'The selected project no longer exists'
+      );
+      return;
+    }
     const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
     statusBarItem.text = `$(sync~spin) Testing SSH connection to ${project.name}...`;
     statusBarItem.show();
@@ -1463,16 +1471,17 @@ async function handleWebviewMessage(
     const remoteInfo = await getCurrentRemoteStatus();
     webview.postMessage({ type: 'remoteStatus', payload: remoteInfo });
   } else if (msg.type === 'testConnection') {
-    const result = await testSshProjectConnection(msg.payload, store.state.sshHosts);
+    const result = await testCurrentSshProjectConnection(
+      msg.payload,
+      store.state.projects,
+      store.state.sshHosts
+    );
     webview.postMessage({ type: 'connectionTestResult', payload: result });
   } else if (msg.type === 'resolveSshTarget') {
     const result = await resolveSshTargetPayload(msg.payload, store.state.sshHosts);
     webview.postMessage({
       type: 'sshTargetResolved',
-      payload: {
-        ...result,
-        requestId: msg.payload.requestId
-      }
+      payload: result
     });
   }
 }

@@ -7,7 +7,7 @@ import {
   materializeRuntimeProjects,
   resolveSshProjectRuntime,
   resolveSshTargetPayload,
-  testSshProjectConnection
+  testCurrentSshProjectConnection
 } from './sshProjectRuntime';
 import { buildRemoteSshUri } from './sshPath';
 
@@ -53,16 +53,17 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
         await vscode.commands.executeCommand('projectPilot.syncConfig');
       } else if (msg.type === 'testConnection') {
         // 测试SSH连接
-        const result = await testSshProjectConnection(msg.payload, this.store.state.sshHosts);
+        const result = await testCurrentSshProjectConnection(
+          msg.payload,
+          this.store.state.projects,
+          this.store.state.sshHosts
+        );
         webviewView.webview.postMessage({ type: 'connectionTestResult', payload: result });
       } else if (msg.type === 'resolveSshTarget') {
         const result = await resolveSshTargetPayload(msg.payload, this.store.state.sshHosts);
         webviewView.webview.postMessage({
           type: 'sshTargetResolved',
-          payload: {
-            ...result,
-            requestId: msg.payload.requestId
-          }
+          payload: result
         });
       } else if (msg.type === 'updateUISettings') {
         await this.store.updateUISettings(msg.payload);
