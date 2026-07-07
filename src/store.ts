@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'crypto';
 import {
   materializeManagedProject,
   migrateSshState,
@@ -274,10 +275,31 @@ export class ConfigStore {
 
   private async writeState(state: State): Promise<string> {
     const content = this.serializeState(state);
-    await vscode.workspace.fs.writeFile(this.fileUri, Buffer.from(content, 'utf8'));
+    const tempUri = vscode.Uri.joinPath(
+      this.dataDirUri,
+      `projects.json.${randomUUID()}.tmp`
+    );
+    const previousWrittenContent = this.lastWrittenContent;
+    const previousObservedContent = this.lastObservedContent;
+
+    // Set suppression markers before the atomic replacement so a watcher event
+    // raised by rename cannot enter the queue with stale self-write metadata.
     this.lastWrittenContent = content;
     this.lastObservedContent = content;
-    return content;
+    try {
+      await vscode.workspace.fs.writeFile(tempUri, Buffer.from(content, 'utf8'));
+      await vscode.workspace.fs.rename(tempUri, this.fileUri, { overwrite: true });
+      return content;
+    } catch (error) {
+      this.lastWrittenContent = previousWrittenContent;
+      this.lastObservedContent = previousObservedContent;
+      try {
+        await vscode.workspace.fs.delete(tempUri);
+      } catch {
+        // The temp write may have failed before creating a file. Cleanup is best effort.
+      }
+      throw error;
+    }
   }
 
   private async applyNormalizedState(

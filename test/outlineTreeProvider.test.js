@@ -192,7 +192,11 @@ try {
 
   const unusedHostItem = provider.getTreeItem(unusedHostNode);
   assert.strictEqual(unusedHostItem.contextValue, 'outline-host-unused');
-  assert.strictEqual(unusedHostItem.collapsibleState, vscodeMock.TreeItemCollapsibleState.None);
+  assert.strictEqual(
+    unusedHostItem.collapsibleState,
+    vscodeMock.TreeItemCollapsibleState.Expanded,
+    'unused Host nodes remain expandable so their Host identity is structurally consistent'
+  );
   assert.strictEqual(unusedHostItem.command, undefined);
 
   assert.strictEqual(localNode.type, 'group');

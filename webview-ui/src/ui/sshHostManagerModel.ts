@@ -10,7 +10,7 @@ import type {
 const isSshType = (type: ProjectType): boolean => type === 'ssh' || type === 'ssh-workspace';
 
 const normalizedConnection = (host: Pick<SshHost, 'hostname' | 'username' | 'port'>): string => JSON.stringify([
-  host.username?.trim().toLowerCase() || null,
+  host.username?.trim() || null,
   host.hostname.trim().toLowerCase(),
   host.port ?? null
 ]);

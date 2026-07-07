@@ -33,7 +33,12 @@ assert.deepStrictEqual(normalizedHost, {
 });
 assert.strictEqual(
   hostConnectionKey(normalizedHost),
-  hostConnectionKey({ ...normalizedHost, hostname: 'build.example.COM', username: 'alice' })
+  hostConnectionKey({ ...normalizedHost, hostname: 'build.example.COM', username: 'Alice' })
+);
+assert.notStrictEqual(
+  hostConnectionKey(normalizedHost),
+  hostConnectionKey({ ...normalizedHost, username: 'alice' }),
+  'SSH usernames remain case-sensitive'
 );
 assert.notStrictEqual(
   hostConnectionKey({ ...normalizedHost, port: undefined }),
@@ -45,8 +50,12 @@ assert.throws(
   /name.*already exists/i
 );
 assert.throws(
-  () => validateSshHost({ id: 'h2', name: 'Other', hostname: 'BUILD.example.com', username: 'ALICE', port: 2222 }, [normalizedHost]),
+  () => validateSshHost({ id: 'h2', name: 'Other', hostname: 'BUILD.example.com', username: 'Alice', port: 2222 }, [normalizedHost]),
   /same connection/i
+);
+assert.doesNotThrow(
+  () => validateSshHost({ id: 'h2', name: 'Lowercase Alice', hostname: 'BUILD.example.com', username: 'alice', port: 2222 }, [normalizedHost]),
+  'Hosts that differ only by username case are distinct connections'
 );
 assert.throws(
   () => validateSshHost({ id: 'h2', name: 'Other', hostname: 'other', port: 65536 }, []),
@@ -75,7 +84,7 @@ assert.throws(
 );
 
 const secondLegacyUri = buildRemoteSshUriFromTarget(
-  { hostname: 'build.example.COM', username: 'ALICE' },
+  { hostname: 'build.example.COM', username: 'alice' },
   '\\srv\\other.code-workspace'
 );
 const localProject = {
@@ -124,6 +133,40 @@ assert.strictEqual(migrated.warnings.length, 1, 'one malformed project produces 
 assert.deepStrictEqual(
   { projectId: migrated.warnings[0].projectId, projectName: migrated.warnings[0].projectName },
   { projectId: 'ssh-bad', projectName: 'Broken SSH' }
+);
+
+const caseSensitiveMigration = migrateSshState({
+  projects: [
+    {
+      id: 'upper-alice',
+      name: 'Upper Alice',
+      path: 'Alice@shared.example.com:/srv/upper',
+      type: 'ssh'
+    },
+    {
+      id: 'lower-alice',
+      name: 'Lower Alice',
+      path: 'alice@SHARED.example.com:/srv/lower',
+      type: 'ssh'
+    }
+  ]
+});
+assert.deepStrictEqual(
+  caseSensitiveMigration.state.sshHosts.map(host => host.username),
+  ['Alice', 'alice'],
+  'migration keeps case-sensitive SSH usernames on separate Hosts'
+);
+assert.notStrictEqual(
+  caseSensitiveMigration.state.projects[0].sshHostId,
+  caseSensitiveMigration.state.projects[1].sshHostId
+);
+assert.strictEqual(
+  caseSensitiveMigration.state.projects[0].sshHostId,
+  caseSensitiveMigration.state.sshHosts.find(host => host.username === 'Alice').id
+);
+assert.strictEqual(
+  caseSensitiveMigration.state.projects[1].sshHostId,
+  caseSensitiveMigration.state.sshHosts.find(host => host.username === 'alice').id
 );
 
 const migratedAgain = migrateSshState(migrated.state);

@@ -65,7 +65,7 @@ function normalizedOptional(value: string | undefined): string | undefined {
 
 export function hostConnectionKey(host: Pick<SshHost, 'hostname' | 'username' | 'port'>): string {
   return JSON.stringify([
-    normalizedOptional(host.username)?.toLowerCase() ?? null,
+    normalizedOptional(host.username) ?? null,
     host.hostname.trim().toLowerCase(),
     host.port ?? null
   ]);

@@ -88,9 +88,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     if (element.type === 'host') {
       const item = new vscode.TreeItem(
         element.label,
-        element.children?.length
-          ? this.getCollapsibleState(element.id, true)
-          : vscode.TreeItemCollapsibleState.None
+        this.getCollapsibleState(element.id, true)
       );
       item.id = element.id;
       item.description = element.description;

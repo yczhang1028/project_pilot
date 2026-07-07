@@ -71,6 +71,11 @@ assert.equal(model.validateSshHostDraft({ name: 'New', hostname: '', username: '
 assert.equal(model.validateSshHostDraft({ name: 'New', hostname: 'example.com', username: '', port: '70000' }, hosts), 'Port must be an integer between 1 and 65535.');
 assert.equal(model.validateSshHostDraft({ name: 'build box', hostname: 'new.example', username: '', port: '' }, hosts), 'A Host with this name already exists.');
 assert.equal(model.validateSshHostDraft({ name: 'Duplicate', hostname: '10.1.2.3', username: 'dev', port: '2222' }, hosts), 'A Host with this connection already exists.');
+assert.equal(
+  model.validateSshHostDraft({ name: 'Case Distinct', hostname: '10.1.2.3', username: 'Dev', port: '2222' }, hosts),
+  null,
+  'username case distinguishes SSH connections in the Host editor'
+);
 assert.equal(model.validateSshHostDraft({ name: 'Build Box', hostname: '10.1.2.4', username: 'dev', port: '2222' }, hosts, 'alpha'), null, 'editing a Host may keep its name');
 assert.deepEqual(
   model.sshHostFromDraft('new-id', { name: ' New Host ', hostname: ' example.com ', username: ' dev ', port: '2200' }),

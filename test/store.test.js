@@ -7,6 +7,7 @@ const directories = new Set();
 const infoMessages = [];
 const warningMessages = [];
 let failNextWrite = false;
+let failNextRename = false;
 let failBackupWrites = false;
 let triggerWatcherOnWrite = false;
 let autoBackupEnabled = true;
@@ -14,9 +15,12 @@ let writeAttempts = 0;
 let currentConfigPath;
 let activeWatcher;
 const writeBehaviors = [];
+const renameBehaviors = [];
 const readBehaviors = [];
 const watcherTasks = [];
 const writeTargets = [];
+const renameTargets = [];
+const fsOperations = [];
 
 function deferred() {
   let resolvePromise;
@@ -45,6 +49,15 @@ function planWrite({ hold = false, error, match = () => true } = {}) {
   if (!hold) release.resolve();
   const behavior = { started, release, error, match };
   writeBehaviors.push(behavior);
+  return behavior;
+}
+
+function planRename({ hold = false, error, match = () => true } = {}) {
+  const started = deferred();
+  const release = deferred();
+  if (!hold) release.resolve();
+  const behavior = { started, release, error, match };
+  renameBehaviors.push(behavior);
   return behavior;
 }
 
@@ -125,6 +138,12 @@ function watcherMatches(target) {
       && !relative.includes(path.win32.sep);
 }
 
+function isConfigTempPath(targetPath, configPath = currentConfigPath) {
+  return path.win32.dirname(targetPath) === path.win32.dirname(configPath)
+    && path.win32.basename(targetPath).startsWith('projects.json.')
+    && path.win32.basename(targetPath).endsWith('.tmp');
+}
+
 const vscodeMock = {
   Uri: {
     file: uri,
@@ -155,6 +174,7 @@ const vscodeMock = {
       async writeFile(target, data) {
         writeAttempts += 1;
         writeTargets.push(target.fsPath);
+        fsOperations.push({ type: 'write', target: target.fsPath });
         const behavior = takeBehavior(writeBehaviors, target);
         if (behavior) {
           behavior.started.resolve();
@@ -170,6 +190,34 @@ const vscodeMock = {
         }
         const existed = files.has(target.fsPath);
         files.set(target.fsPath, Buffer.from(data));
+        if (triggerWatcherOnWrite && watcherMatches(target)) {
+          const task = Promise.resolve().then(() => existed
+            ? activeWatcher.fireChange(target)
+            : activeWatcher.fireCreate(target));
+          watcherTasks.push(task);
+        }
+      },
+      async rename(source, target, options = {}) {
+        renameTargets.push({ source: source.fsPath, target: target.fsPath, options });
+        fsOperations.push({ type: 'rename', source: source.fsPath, target: target.fsPath });
+        const behavior = takeBehavior(renameBehaviors, target);
+        if (behavior) {
+          behavior.started.resolve();
+          await behavior.release.promise;
+          if (behavior.error) throw behavior.error;
+        }
+        if (failNextRename) {
+          failNextRename = false;
+          throw new Error('simulated rename failure');
+        }
+        const value = files.get(source.fsPath);
+        if (!value) throw FileSystemError.FileNotFound(source);
+        if (!options.overwrite && files.has(target.fsPath)) {
+          throw new Error(`File exists: ${target.fsPath}`);
+        }
+        const existed = files.has(target.fsPath);
+        files.set(target.fsPath, Buffer.from(value));
+        files.delete(source.fsPath);
         if (triggerWatcherOnWrite && watcherMatches(target)) {
           const task = Promise.resolve().then(() => existed
             ? activeWatcher.fireChange(target)
@@ -243,6 +291,7 @@ function resetFs() {
   infoMessages.length = 0;
   warningMessages.length = 0;
   failNextWrite = false;
+  failNextRename = false;
   failBackupWrites = false;
   triggerWatcherOnWrite = false;
   autoBackupEnabled = true;
@@ -250,9 +299,12 @@ function resetFs() {
   currentConfigPath = undefined;
   activeWatcher = undefined;
   writeBehaviors.length = 0;
+  renameBehaviors.length = 0;
   readBehaviors.length = 0;
   watcherTasks.length = 0;
   writeTargets.length = 0;
+  renameTargets.length = 0;
+  fsOperations.length = 0;
 }
 
 async function createStore(initial, root = 'C:\\store-tests', reset = true) {
@@ -493,8 +545,14 @@ async function expectReject(action, pattern) {
       /name.*already exists/i
     );
     await expectReject(
-      () => store.addSshHost({ id: 'two', name: 'Two', hostname: 'ONE.example.com', username: 'DEV' }),
+      () => store.addSshHost({ id: 'two', name: 'Two', hostname: 'ONE.example.com', username: 'dev' }),
       /same connection/i
+    );
+    await store.addSshHost({ id: 'case-distinct', name: 'Case Distinct', hostname: 'ONE.example.com', username: 'DEV' });
+    assert.deepStrictEqual(
+      store.state.sshHosts.map(host => host.username),
+      ['dev', 'DEV'],
+      'Store preserves case-sensitive SSH connection identities'
     );
     await expectReject(
       () => store.addSshHost({ id: 'two', name: 'Two', hostname: 'two.example.com', port: 0 }),
@@ -678,6 +736,10 @@ async function expectReject(action, pattern) {
     const beforeState = JSON.parse(JSON.stringify(store.state));
     const beforeWarnings = JSON.parse(JSON.stringify(store.migrationWarnings));
     const beforeDisk = readJson(configPath);
+    const beforeBytes = Buffer.from(files.get(configPath));
+    const expectedFailedState = baseState(beforeDisk.projects, [
+      { id: 'new', name: 'New', hostname: 'new.example.com' }
+    ]);
     let notifications = 0;
     store.setOnChangeCallback(() => { notifications += 1; });
     failNextWrite = true;
@@ -688,7 +750,102 @@ async function expectReject(action, pattern) {
     assert.deepStrictEqual(store.state, beforeState);
     assert.deepStrictEqual(store.migrationWarnings, beforeWarnings);
     assert.deepStrictEqual(readJson(configPath), beforeDisk);
+    assert.deepStrictEqual(Buffer.from(files.get(configPath)), beforeBytes, 'a temp write failure preserves original bytes');
     assert.strictEqual(notifications, 0);
+    assert.deepStrictEqual(
+      [...files.keys()].filter(candidate => isConfigTempPath(candidate, configPath)),
+      [],
+      'a failed temp write does not leave a temp file behind'
+    );
+
+    putJson(configPath, expectedFailedState);
+    await activeWatcher.fireChange();
+    assert.strictEqual(store.state.sshHosts[0].id, 'new', 'a failed write restores watcher suppression markers');
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    const operationStart = fsOperations.length;
+
+    await store.addProject({ id: 'atomic', name: 'Atomic', path: 'C:\\atomic', type: 'local' });
+
+    const operations = fsOperations.slice(operationStart);
+    assert.strictEqual(operations.length, 2, 'one config commit consists of a temp write and one rename');
+    assert.strictEqual(operations[0].type, 'write');
+    assert.strictEqual(isConfigTempPath(operations[0].target, configPath), true);
+    assert.deepStrictEqual(operations[1], {
+      type: 'rename',
+      source: operations[0].target,
+      target: configPath
+    });
+    assert.deepStrictEqual(renameTargets.at(-1).options, { overwrite: true });
+    assert.deepStrictEqual(readJson(configPath).projects.map(project => project.id), ['atomic']);
+    assert.strictEqual(files.has(operations[0].target), false, 'successful rename consumes the temp file');
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState([
+      { id: 'before', name: 'Before', path: 'C:\\before', type: 'local' }
+    ]));
+    const beforeState = JSON.parse(JSON.stringify(store.state));
+    const beforeBytes = Buffer.from(files.get(configPath));
+    const intendedState = baseState([
+      ...beforeState.projects,
+      { id: 'after', name: 'After', path: 'C:\\after', type: 'local' }
+    ]);
+    let notifications = 0;
+    store.setOnChangeCallback(() => { notifications += 1; });
+    failNextRename = true;
+
+    await expectReject(
+      () => store.addProject({ id: 'after', name: 'After', path: 'C:\\after', type: 'local' }),
+      /simulated rename failure/
+    );
+
+    assert.deepStrictEqual(store.state, beforeState, 'rename failure preserves in-memory state');
+    assert.deepStrictEqual(Buffer.from(files.get(configPath)), beforeBytes, 'rename failure preserves original bytes');
+    assert.strictEqual(notifications, 0);
+    assert.deepStrictEqual(
+      [...files.keys()].filter(candidate => isConfigTempPath(candidate, configPath)),
+      [],
+      'rename failure cleans its temp file'
+    );
+
+    putJson(configPath, intendedState);
+    await activeWatcher.fireChange();
+    assert.deepStrictEqual(
+      store.state.projects.map(project => project.id),
+      ['before', 'after'],
+      'rename failure restores watcher suppression markers'
+    );
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    let notifications = 0;
+    store.setOnChangeCallback(() => { notifications += 1; });
+    const pendingRename = planRename({
+      hold: true,
+      match: target => target.fsPath === configPath
+    });
+
+    const mutation = store.addProject({
+      id: 'rename-race',
+      name: 'Rename Race',
+      path: 'C:\\rename-race',
+      type: 'local'
+    });
+    await pendingRename.started.promise;
+    assert.deepStrictEqual(readJson(configPath).projects, [], 'the target stays intact until atomic replacement');
+
+    const watcherEvent = activeWatcher.fireChange();
+    await Promise.resolve();
+    assert.deepStrictEqual(store.state.projects, [], 'a watcher cannot publish stale target data mid-commit');
+
+    pendingRename.release.resolve();
+    await Promise.all([mutation, watcherEvent]);
+    assert.deepStrictEqual(store.state.projects.map(project => project.id), ['rename-race']);
+    assert.strictEqual(notifications, 1, 'the queued self-write watcher event does not republish stale data');
   }
 
   {
@@ -798,9 +955,9 @@ async function expectReject(action, pattern) {
     const firstWrite = planWrite({
       hold: true,
       error: new Error('first mutation failed'),
-      match: target => target.fsPath === configPath
+      match: target => isConfigTempPath(target.fsPath, configPath)
     });
-    const secondWrite = planWrite({ match: target => target.fsPath === configPath });
+    const secondWrite = planWrite({ match: target => isConfigTempPath(target.fsPath, configPath) });
     const failedInput = { name: 'Failed A', path: 'C:\\failed-a', type: 'local' };
     const succeedingInput = { name: 'Succeeded B', path: 'C:\\succeeded-b', type: 'local' };
 
@@ -827,8 +984,8 @@ async function expectReject(action, pattern) {
     const { store, configPath } = await createStore(baseState());
     let notifications = 0;
     store.setOnChangeCallback(() => { notifications += 1; });
-    const firstWrite = planWrite({ hold: true, match: target => target.fsPath === configPath });
-    const secondWrite = planWrite({ match: target => target.fsPath === configPath });
+    const firstWrite = planWrite({ hold: true, match: target => isConfigTempPath(target.fsPath, configPath) });
+    const secondWrite = planWrite({ match: target => isConfigTempPath(target.fsPath, configPath) });
     const firstInput = { name: 'First', path: 'C:\\first', type: 'local' };
     const secondInput = { name: 'Second', path: 'C:\\second', type: 'local' };
 
