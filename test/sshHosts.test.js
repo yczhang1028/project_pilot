@@ -114,6 +114,43 @@ assert.strictEqual(migratedAgain.changed, false, 'migration is idempotent');
 assert.deepStrictEqual(migratedAgain.state, migrated.state, 'an idempotent migration is byte-equivalent data');
 assert.strictEqual(migratedAgain.warnings.length, 1, 'the malformed fallback still emits one warning per migration');
 
+for (const username of ['DOMAIN\\user', 'name:part']) {
+  const structuredUri = buildRemoteSshUriFromTarget(
+    { hostname: 'host.example.com', username },
+    '/srv/repo'
+  );
+  const unsafeUsernameMigration = migrateSshState({
+    projects: [{
+      id: `unsafe-${username}`,
+      name: `Unsafe ${username}`,
+      path: structuredUri,
+      type: 'ssh'
+    }]
+  });
+
+  assert.strictEqual(unsafeUsernameMigration.state.sshHosts.length, 1);
+  assert.deepStrictEqual(
+    (({ hostname, username: migratedUsername }) => ({ hostname, username: migratedUsername }))(
+      unsafeUsernameMigration.state.sshHosts[0]
+    ),
+    { hostname: 'host.example.com', username }
+  );
+  assert.strictEqual(unsafeUsernameMigration.state.projects[0].remotePath, '/srv/repo');
+  assert.strictEqual(
+    unsafeUsernameMigration.state.projects[0].sshHostId,
+    unsafeUsernameMigration.state.sshHosts[0].id
+  );
+  assert.match(
+    unsafeUsernameMigration.state.projects[0].path,
+    /^vscode-remote:\/\/ssh-remote\+/
+  );
+  assert.deepStrictEqual(unsafeUsernameMigration.warnings, []);
+
+  const unsafeUsernameAgain = migrateSshState(unsafeUsernameMigration.state);
+  assert.strictEqual(unsafeUsernameAgain.changed, false);
+  assert.deepStrictEqual(unsafeUsernameAgain.state, unsafeUsernameMigration.state);
+}
+
 const linuxHost = {
   id: 'linux',
   name: 'Linux',

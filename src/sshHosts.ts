@@ -1,8 +1,8 @@
 import type { ProjectItem, UISettings } from './store';
 import {
   buildRemoteSshUriFromTarget,
-  getRawSshPathFromRemoteUri,
   normalizeRemoteSshPath,
+  parseRemoteSshAuthority,
   parseRawSshPath
 } from './sshPath';
 
@@ -218,14 +218,31 @@ function uniqueHostName(hostname: string, usedNames: Set<string>): string {
 }
 
 function parseLegacyProject(project: SshProjectItem) {
-  const rawPath = project.path.trim().startsWith('vscode-remote://ssh-remote+')
-    ? getRawSshPathFromRemoteUri(project.path)
-    : project.path;
-  if (!rawPath) {
-    return null;
+  const trimmedPath = project.path.trim();
+  const remoteUriPrefix = 'vscode-remote://ssh-remote+';
+
+  if (trimmedPath.startsWith(remoteUriPrefix)) {
+    const authorityAndPath = trimmedPath.slice(remoteUriPrefix.length);
+    const pathIndex = authorityAndPath.indexOf('/');
+    if (pathIndex <= 0) {
+      return null;
+    }
+
+    const authority = parseRemoteSshAuthority(authorityAndPath.slice(0, pathIndex));
+    const remotePath = normalizeRemoteSshPath(authorityAndPath.slice(pathIndex).trim());
+    if (!authority.hostname.trim() || !remotePath) {
+      return null;
+    }
+
+    return {
+      hostname: authority.hostname.trim(),
+      ...(normalizedOptional(authority.username) ? { username: normalizedOptional(authority.username) } : {}),
+      ...(authority.port !== undefined ? { port: authority.port } : {}),
+      remotePath
+    };
   }
 
-  const parsed = parseRawSshPath(rawPath);
+  const parsed = parseRawSshPath(trimmedPath);
   if (!parsed) {
     return null;
   }
