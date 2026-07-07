@@ -380,18 +380,23 @@ export async function testSshProjectConnection(
   }
 }
 
-export async function testCurrentSshProjectConnection(
-  project: ProjectItem,
+export async function testSubmittedSshProjectConnection(
+  value: unknown,
   currentProjects: readonly ProjectItem[],
   hosts: readonly SshHost[],
   probe: SshProbe = testSshHostConnection
 ): Promise<SshProbeResult> {
   try {
-    return await testSshProjectConnection(
-      resolveCurrentProject(project, currentProjects),
-      hosts,
-      probe
-    );
+    const project = sanitizeProject(value);
+    if (!project) {
+      throw new Error('Invalid submitted SSH project.');
+    }
+    if (project.id !== undefined) {
+      if (!project.id || !currentProjects.some(candidate => candidate.id === project.id)) {
+        throw new Error(`Project ${project.id || 'with empty ID'} no longer exists`);
+      }
+    }
+    return await testSshProjectConnection(project, hosts, probe);
   } catch (error) {
     return {
       success: false,

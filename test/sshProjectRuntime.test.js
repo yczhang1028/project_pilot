@@ -5,7 +5,7 @@ const {
   resolveCurrentProject,
   resolveSshProjectRuntime,
   resolveSshTargetPayload,
-  testCurrentSshProjectConnection,
+  testSubmittedSshProjectConnection,
   testSshProjectConnection
 } = require('../out/sshProjectRuntime');
 
@@ -232,19 +232,115 @@ assert.throws(
   assert.match(invalidStructuredProbe.message, /invalid SSH port/i);
   assert.strictEqual(invalidStructuredProbeCalled, false);
 
-  let staleProjectProbeCalled = false;
-  const staleProjectTest = await testCurrentSshProjectConnection(
-    { ...managedProject, id: 'deleted-project' },
+  const secondHost = {
+    id: 'second',
+    name: 'Second host',
+    hostname: '198.51.100.77',
+    username: 'draft-user',
+    port: 2207
+  };
+  let submittedManagedProbeHost;
+  const submittedManagedDraft = {
+    ...managedProject,
+    sshHostId: 'second',
+    remotePath: '/srv/draft-version'
+  };
+  const submittedManagedTest = await testSubmittedSshProjectConnection(
+    submittedManagedDraft,
     [currentStoredProject],
-    [customPortHost],
-    async () => {
-      staleProjectProbeCalled = true;
-      return { success: true, code: 'ok', message: 'must not probe' };
+    [currentHost, secondHost],
+    async host => {
+      submittedManagedProbeHost = host;
+      return { success: true, code: 'ok', message: 'draft probed' };
     }
   );
-  assert.strictEqual(staleProjectTest.success, false);
-  assert.match(staleProjectTest.message, /Project deleted-project no longer exists/);
-  assert.strictEqual(staleProjectProbeCalled, false);
+  assert.strictEqual(submittedManagedTest.success, true);
+  assert.deepStrictEqual(
+    submittedManagedProbeHost,
+    secondHost,
+    'an existing project test uses the submitted Host instead of its stored Host'
+  );
+
+  let invalidDraftPathProbeCalled = false;
+  const invalidDraftPathTest = await testSubmittedSshProjectConnection(
+    {
+      ...submittedManagedDraft,
+      type: 'ssh-workspace',
+      remotePath: '/srv/draft-version.txt'
+    },
+    [currentStoredProject],
+    [currentHost, secondHost],
+    async () => {
+      invalidDraftPathProbeCalled = true;
+      return { success: true, code: 'ok', message: 'must not probe invalid draft path' };
+    }
+  );
+  assert.strictEqual(invalidDraftPathTest.success, false);
+  assert.match(invalidDraftPathTest.message, /should end with \.code-workspace/i);
+  assert.strictEqual(
+    invalidDraftPathProbeCalled,
+    false,
+    'submitted remotePath validation is not replaced by the stored remotePath'
+  );
+
+  const storedLegacyProject = {
+    id: 'stored-legacy',
+    name: 'Stored legacy',
+    path: 'old-user@old.example.com:/srv/old',
+    type: 'ssh'
+  };
+  const submittedLegacyDraft = {
+    ...storedLegacyProject,
+    path: 'new-user@new.example.com:/srv/new'
+  };
+  let submittedLegacyProbeHost;
+  const submittedLegacyTest = await testSubmittedSshProjectConnection(
+    submittedLegacyDraft,
+    [storedLegacyProject],
+    [],
+    async host => {
+      submittedLegacyProbeHost = host;
+      return { success: true, code: 'ok', message: 'legacy draft probed' };
+    }
+  );
+  assert.strictEqual(submittedLegacyTest.success, true);
+  assert.deepStrictEqual(
+    (({ hostname, username }) => ({ hostname, username }))(submittedLegacyProbeHost),
+    { hostname: 'new.example.com', username: 'new-user' }
+  );
+
+  for (const staleId of ['deleted-project', '']) {
+    let staleProjectProbeCalled = false;
+    const staleProjectTest = await testSubmittedSshProjectConnection(
+      { ...managedProject, id: staleId },
+      [currentStoredProject],
+      [customPortHost],
+      async () => {
+        staleProjectProbeCalled = true;
+        return { success: true, code: 'ok', message: 'must not probe' };
+      }
+    );
+    assert.strictEqual(staleProjectTest.success, false);
+    assert.match(staleProjectTest.message, /Project .* no longer exists/);
+    assert.strictEqual(staleProjectProbeCalled, false);
+  }
+
+  let idlessDraftProbeHost;
+  const idlessDraftTest = await testSubmittedSshProjectConnection(
+    {
+      name: 'New draft',
+      path: 'fresh@new-draft.example.com:/srv/new',
+      type: 'ssh'
+    },
+    [currentStoredProject],
+    [],
+    async host => {
+      idlessDraftProbeHost = host;
+      return { success: true, code: 'ok', message: 'new draft probed' };
+    }
+  );
+  assert.strictEqual(idlessDraftTest.success, true);
+  assert.strictEqual(idlessDraftProbeHost.hostname, 'new-draft.example.com');
 
   let probedHost;
   const failedProbe = await testSshProjectConnection(

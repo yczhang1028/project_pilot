@@ -34,7 +34,7 @@ import {
   resolveCurrentProject,
   resolveSshProjectRuntime,
   resolveSshTargetPayload,
-  testCurrentSshProjectConnection,
+  testSubmittedSshProjectConnection,
   testSshProjectConnection
 } from './sshProjectRuntime';
 
@@ -1471,7 +1471,7 @@ async function handleWebviewMessage(
     const remoteInfo = await getCurrentRemoteStatus();
     webview.postMessage({ type: 'remoteStatus', payload: remoteInfo });
   } else if (msg.type === 'testConnection') {
-    const result = await testCurrentSshProjectConnection(
+    const result = await testSubmittedSshProjectConnection(
       msg.payload,
       store.state.projects,
       store.state.sshHosts
