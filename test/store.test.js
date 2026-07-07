@@ -7,7 +7,64 @@ const directories = new Set();
 const infoMessages = [];
 const warningMessages = [];
 let failNextWrite = false;
+let failBackupWrites = false;
+let triggerWatcherOnWrite = false;
+let autoBackupEnabled = true;
+let writeAttempts = 0;
+let currentConfigPath;
 let activeWatcher;
+const writeBehaviors = [];
+const readBehaviors = [];
+const watcherTasks = [];
+const writeTargets = [];
+
+function deferred() {
+  let resolvePromise;
+  let rejectPromise;
+  const result = {
+    settled: false,
+    promise: new Promise((resolve, reject) => {
+      resolvePromise = resolve;
+      rejectPromise = reject;
+    }),
+    resolve(value) {
+      result.settled = true;
+      resolvePromise(value);
+    },
+    reject(error) {
+      result.settled = true;
+      rejectPromise(error);
+    }
+  };
+  return result;
+}
+
+function planWrite({ hold = false, error, match = () => true } = {}) {
+  const started = deferred();
+  const release = deferred();
+  if (!hold) release.resolve();
+  const behavior = { started, release, error, match };
+  writeBehaviors.push(behavior);
+  return behavior;
+}
+
+function planRead({ hold = false, error, match = () => true } = {}) {
+  const started = deferred();
+  const release = deferred();
+  if (!hold) release.resolve();
+  const behavior = { started, release, error, match };
+  readBehaviors.push(behavior);
+  return behavior;
+}
+
+async function drainWatcherTasks() {
+  let consumed = 0;
+  while (consumed < watcherTasks.length) {
+    const batch = watcherTasks.slice(consumed);
+    consumed = watcherTasks.length;
+    await Promise.all(batch);
+  }
+}
 
 function normalizePath(value) {
   return path.win32.normalize(value);
@@ -39,6 +96,35 @@ class RelativePattern {
   }
 }
 
+class FileSystemError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'FileSystemError';
+    this.code = code;
+  }
+
+  static FileNotFound(target) {
+    return new FileSystemError(`File not found: ${target.fsPath}`, 'FileNotFound');
+  }
+}
+
+function takeBehavior(behaviors, target) {
+  const index = behaviors.findIndex(behavior => behavior.match(target));
+  return index >= 0 ? behaviors.splice(index, 1)[0] : undefined;
+}
+
+function watcherMatches(target) {
+  if (!activeWatcher) return false;
+  const basePath = activeWatcher.pattern.base.fsPath;
+  const relative = path.win32.relative(basePath, target.fsPath);
+  return activeWatcher.pattern.pattern === 'projects.json'
+    ? relative === 'projects.json'
+    : activeWatcher.pattern.pattern === '*'
+      && relative.length > 0
+      && !relative.startsWith('..')
+      && !relative.includes(path.win32.sep);
+}
+
 const vscodeMock = {
   Uri: {
     file: uri,
@@ -47,6 +133,7 @@ const vscodeMock = {
     }
   },
   RelativePattern,
+  FileSystemError,
   FileType: { File: 1, Directory: 2 },
   workspace: {
     fs: {
@@ -55,15 +142,40 @@ const vscodeMock = {
       },
       async readFile(target) {
         const value = files.get(target.fsPath);
-        if (!value) throw new Error(`File not found: ${target.fsPath}`);
-        return Uint8Array.from(value);
+        const captured = value ? Buffer.from(value) : undefined;
+        const behavior = takeBehavior(readBehaviors, target);
+        if (behavior) {
+          behavior.started.resolve();
+          await behavior.release.promise;
+          if (behavior.error) throw behavior.error;
+        }
+        if (!captured) throw FileSystemError.FileNotFound(target);
+        return Uint8Array.from(captured);
       },
       async writeFile(target, data) {
+        writeAttempts += 1;
+        writeTargets.push(target.fsPath);
+        const behavior = takeBehavior(writeBehaviors, target);
+        if (behavior) {
+          behavior.started.resolve();
+          await behavior.release.promise;
+          if (behavior.error) throw behavior.error;
+        }
         if (failNextWrite) {
           failNextWrite = false;
           throw new Error('simulated write failure');
         }
+        if (failBackupWrites && target.fsPath.includes(`${path.win32.sep}backups${path.win32.sep}`)) {
+          throw new Error('simulated backup write failure');
+        }
+        const existed = files.has(target.fsPath);
         files.set(target.fsPath, Buffer.from(data));
+        if (triggerWatcherOnWrite && watcherMatches(target)) {
+          const task = Promise.resolve().then(() => existed
+            ? activeWatcher.fireChange(target)
+            : activeWatcher.fireCreate(target));
+          watcherTasks.push(task);
+        }
       },
       async readDirectory(target) {
         const prefix = `${target.fsPath}${path.win32.sep}`;
@@ -80,19 +192,35 @@ const vscodeMock = {
         files.set(target.fsPath, Buffer.from(value));
       }
     },
-    createFileSystemWatcher() {
-      let changeHandler;
+    createFileSystemWatcher(pattern) {
+      const changeHandlers = [];
+      const createHandlers = [];
       activeWatcher = {
+        pattern,
         onDidChange(handler) {
-          changeHandler = handler;
+          changeHandlers.push(handler);
           return { dispose() {} };
         },
-        async fireChange() {
-          if (changeHandler) await changeHandler();
+        onDidCreate(handler) {
+          createHandlers.push(handler);
+          return { dispose() {} };
+        },
+        async fireChange(target = uri(currentConfigPath)) {
+          await Promise.all(changeHandlers.map(handler => handler(target)));
+        },
+        async fireCreate(target = uri(currentConfigPath)) {
+          await Promise.all(createHandlers.map(handler => handler(target)));
         },
         dispose() {}
       };
       return activeWatcher;
+    },
+    getConfiguration() {
+      return {
+        get(key, fallback) {
+          return key === 'autoBackup' ? autoBackupEnabled : fallback;
+        }
+      };
     }
   },
   window: {
@@ -115,12 +243,22 @@ function resetFs() {
   infoMessages.length = 0;
   warningMessages.length = 0;
   failNextWrite = false;
+  failBackupWrites = false;
+  triggerWatcherOnWrite = false;
+  autoBackupEnabled = true;
+  writeAttempts = 0;
+  currentConfigPath = undefined;
   activeWatcher = undefined;
+  writeBehaviors.length = 0;
+  readBehaviors.length = 0;
+  watcherTasks.length = 0;
+  writeTargets.length = 0;
 }
 
 async function createStore(initial, root = 'C:\\store-tests', reset = true) {
   if (reset) resetFs();
   const configPath = path.win32.join(root, 'data', 'projects.json');
+  currentConfigPath = configPath;
   if (initial !== undefined) putJson(configPath, initial);
   const store = new ConfigStore({ globalStorageUri: uri(root) });
   await store.init();
@@ -443,6 +581,236 @@ async function expectReject(action, pattern) {
     } finally {
       console.error = originalConsoleError;
     }
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    let notifications = 0;
+    store.setOnChangeCallback(() => { notifications += 1; });
+    const firstWrite = planWrite({
+      hold: true,
+      error: new Error('first mutation failed'),
+      match: target => target.fsPath === configPath
+    });
+    const secondWrite = planWrite({ match: target => target.fsPath === configPath });
+    const failedInput = { name: 'Failed A', path: 'C:\\failed-a', type: 'local' };
+    const succeedingInput = { name: 'Succeeded B', path: 'C:\\succeeded-b', type: 'local' };
+
+    const firstMutation = store.addProject(failedInput);
+    await firstWrite.started.promise;
+    const secondMutation = store.upsertProject(succeedingInput);
+    await Promise.resolve();
+    const secondWaited = !secondWrite.started.settled;
+    firstWrite.release.resolve();
+    const [firstResult, secondResult] = await Promise.allSettled([firstMutation, secondMutation]);
+
+    assert.strictEqual(secondWaited, true, 'a later mutation waits for the pending write');
+    assert.strictEqual(firstResult.status, 'rejected');
+    assert.match(firstResult.reason.message, /first mutation failed/);
+    assert.strictEqual(secondResult.status, 'fulfilled');
+    assert.deepStrictEqual(store.state.projects.map(project => project.name), ['Succeeded B']);
+    assert.deepStrictEqual(readJson(configPath).projects.map(project => project.name), ['Succeeded B']);
+    assert.strictEqual(notifications, 1);
+    assert.deepStrictEqual(failedInput, { name: 'Failed A', path: 'C:\\failed-a', type: 'local' });
+    assert.deepStrictEqual(succeedingInput, { name: 'Succeeded B', path: 'C:\\succeeded-b', type: 'local' });
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    let notifications = 0;
+    store.setOnChangeCallback(() => { notifications += 1; });
+    const firstWrite = planWrite({ hold: true, match: target => target.fsPath === configPath });
+    const secondWrite = planWrite({ match: target => target.fsPath === configPath });
+    const firstInput = { name: 'First', path: 'C:\\first', type: 'local' };
+    const secondInput = { name: 'Second', path: 'C:\\second', type: 'local' };
+
+    const firstMutation = store.addProject(firstInput);
+    await firstWrite.started.promise;
+    const secondMutation = store.upsertProject(secondInput);
+    await Promise.resolve();
+    const secondWaited = !secondWrite.started.settled;
+    firstWrite.release.resolve();
+    await Promise.all([firstMutation, secondMutation]);
+
+    assert.strictEqual(secondWaited, true, 'successful writes retain request order');
+    assert.deepStrictEqual(store.state.projects.map(project => project.name), ['First', 'Second']);
+    assert.deepStrictEqual(readJson(configPath).projects.map(project => project.name), ['First', 'Second']);
+    assert.strictEqual(notifications, 2);
+    assert.deepStrictEqual(firstInput, { name: 'First', path: 'C:\\first', type: 'local' });
+    assert.deepStrictEqual(secondInput, { name: 'Second', path: 'C:\\second', type: 'local' });
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    const watchedDirectory = path.win32.dirname(configPath);
+    const watcherTargetsFile = activeWatcher.pattern.base.fsPath === watchedDirectory
+      && activeWatcher.pattern.pattern === 'projects.json';
+    triggerWatcherOnWrite = true;
+    infoMessages.length = 0;
+    let notifications = 0;
+    store.setOnChangeCallback(() => { notifications += 1; });
+
+    await store.addProject({ id: 'self-write', name: 'Self Write', path: 'C:\\self', type: 'local' });
+    await drainWatcherTasks();
+
+    assert.strictEqual(watcherTargetsFile, true, 'the watcher targets projects.json from its directory');
+    assert.strictEqual(notifications, 1, 'a self-write emits one logical store notification');
+    assert.deepStrictEqual(infoMessages, [], 'a self-write does not show a reload toast');
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    infoMessages.length = 0;
+    let notifications = 0;
+    store.setOnChangeCallback(() => { notifications += 1; });
+    putJson(configPath, baseState([
+      { id: 'older', name: 'Older', path: 'C:\\older', type: 'local' }
+    ]));
+    const olderRead = planRead({ hold: true, match: target => target.fsPath === configPath });
+    const olderEvent = activeWatcher.fireChange();
+    await olderRead.started.promise;
+
+    putJson(configPath, baseState([
+      { id: 'newer', name: 'Newer', path: 'C:\\newer', type: 'local' }
+    ]));
+    const newerEvent = activeWatcher.fireChange();
+    olderRead.release.resolve();
+    await Promise.all([olderEvent, newerEvent]);
+
+    assert.deepStrictEqual(store.state.projects.map(project => project.name), ['Newer']);
+    assert.strictEqual(notifications, 2, 'each distinct external state emits one callback');
+    assert.strictEqual(
+      infoMessages.filter(message => message === 'Project Pilot configuration reloaded').length,
+      2,
+      'each distinct external state emits one reload toast'
+    );
+  }
+
+  {
+    const invalidStartupStates = [
+      [{ schemaVersion: 2, projects: [] }, /sshHosts.*array/i],
+      [baseState([{}]), /project.*name/i]
+    ];
+    for (const [invalid, pattern] of invalidStartupStates) {
+      await expectReject(() => createStore(invalid), pattern);
+    }
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState());
+    const beforeState = JSON.parse(JSON.stringify(store.state));
+    const beforeWarnings = JSON.parse(JSON.stringify(store.migrationWarnings));
+    const invalidProjects = [
+      [{ name: 'Bad Type', path: 'C:\\repo', type: 'bogus' }, /type/i],
+      [{ name: 42, path: 'C:\\repo', type: 'local' }, /name/i],
+      [{ name: 'Bad Path', path: 42, type: 'local' }, /path/i],
+      [{ name: 'Bad ID', path: 'C:\\repo', type: 'local', id: 42 }, /id/i],
+      [{ name: 'Bad Description', path: 'C:\\repo', type: 'local', description: 42 }, /description/i],
+      [{ name: 'Bad Icon', path: 'C:\\repo', type: 'local', icon: 42 }, /icon/i],
+      [{ name: 'Bad Color', path: 'C:\\repo', type: 'local', color: 42 }, /color/i],
+      [{ name: 'Bad Tags', path: 'C:\\repo', type: 'local', tags: ['ok', 42] }, /tags/i],
+      [{ name: 'Bad Group', path: 'C:\\repo', type: 'local', group: 42 }, /group/i],
+      [{ name: 'Bad Favorite', path: 'C:\\repo', type: 'local', isFavorite: 'yes' }, /isFavorite/i],
+      [{ name: 'Bad Count', path: 'C:\\repo', type: 'local', clickCount: 'many' }, /clickCount/i],
+      [{ name: 'Bad Access', path: 'C:\\repo', type: 'local', lastAccessed: 42 }, /lastAccessed/i]
+    ];
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+      for (const [project, pattern] of invalidProjects) {
+        putJson(configPath, baseState([project]));
+        await expectReject(() => store.reload(), pattern);
+        assert.deepStrictEqual(store.state, beforeState);
+        assert.deepStrictEqual(store.migrationWarnings, beforeWarnings);
+      }
+    } finally {
+      console.error = originalConsoleError;
+    }
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState([
+      { id: 'good', name: 'Good', path: 'C:\\good', type: 'local' }
+    ]));
+    const beforeState = JSON.parse(JSON.stringify(store.state));
+    const beforeDisk = readJson(configPath);
+    const badSettings = [
+      [{ compactMode: 'yes' }, /compactMode/i],
+      [{ viewMode: 'bogus' }, /viewMode/i],
+      [{ selectedGroup: 42 }, /selectedGroup/i],
+      [{ outlineMode: 'bogus' }, /outlineMode/i]
+    ];
+    for (let index = 0; index < badSettings.length; index += 1) {
+      const [uiSettings, pattern] = badSettings[index];
+      const importUri = uri(`C:\\imports\\bad-settings-${index}.json`);
+      putJson(importUri.fsPath, baseState([], [], uiSettings));
+      const backupWritesBefore = writeTargets.filter(target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)).length;
+      await expectReject(() => store.importFromFile(importUri), pattern);
+      const backupWritesAfter = writeTargets.filter(target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)).length;
+      assert.strictEqual(backupWritesAfter, backupWritesBefore, 'invalid imports do not create backups');
+      assert.deepStrictEqual(store.state, beforeState);
+      assert.deepStrictEqual(readJson(configPath), beforeDisk);
+    }
+
+    const missingHostsUri = uri('C:\\imports\\missing-hosts.json');
+    putJson(missingHostsUri.fsPath, { schemaVersion: 2, projects: [] });
+    const backupWritesBefore = writeTargets.filter(target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)).length;
+    await expectReject(() => store.importFromFile(missingHostsUri), /sshHosts.*array/i);
+    const backupWritesAfter = writeTargets.filter(target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)).length;
+    assert.strictEqual(backupWritesAfter, backupWritesBefore);
+    assert.deepStrictEqual(store.state, beforeState);
+
+    const missingProjectsUri = uri('C:\\imports\\missing-projects.json');
+    putJson(missingProjectsUri.fsPath, { schemaVersion: 2, sshHosts: [] });
+    const missingProjectsBackupCount = writeTargets.filter(
+      target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)
+    ).length;
+    await expectReject(() => store.importFromFile(missingProjectsUri), /projects.*array/i);
+    assert.strictEqual(
+      writeTargets.filter(target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)).length,
+      missingProjectsBackupCount
+    );
+    assert.deepStrictEqual(store.state, beforeState);
+  }
+
+  {
+    resetFs();
+    const root = 'C:\\permission-error';
+    const configPath = path.win32.join(root, 'data', 'projects.json');
+    currentConfigPath = configPath;
+    planRead({
+      error: new FileSystemError('permission denied', 'NoPermissions'),
+      match: target => target.fsPath === configPath
+    });
+    const store = new ConfigStore({ globalStorageUri: uri(root) });
+    await expectReject(() => store.init(), /permission denied/i);
+    assert.strictEqual(writeAttempts, 0, 'startup read errors never replace config with demo data');
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState([
+      { id: 'before', name: 'Before', path: 'C:\\before', type: 'local' }
+    ]));
+    const beforeState = JSON.parse(JSON.stringify(store.state));
+    const beforeDisk = readJson(configPath);
+    const importUri = uri('C:\\imports\\valid-for-backup-failure.json');
+    putJson(importUri.fsPath, baseState([
+      { id: 'after', name: 'After', path: 'C:\\after', type: 'local' }
+    ]));
+    failBackupWrites = true;
+    const originalConsoleWarn = console.warn;
+    console.warn = () => {};
+    try {
+      await expectReject(() => store.importFromFile(importUri), /backup write failure/i);
+    } finally {
+      console.warn = originalConsoleWarn;
+    }
+    assert.deepStrictEqual(store.state, beforeState);
+    assert.deepStrictEqual(readJson(configPath), beforeDisk);
+
+    autoBackupEnabled = false;
+    await store.importFromFile(importUri);
+    assert.deepStrictEqual(store.state.projects.map(project => project.name), ['After']);
   }
 
   console.log('store tests passed');
