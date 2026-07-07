@@ -136,6 +136,117 @@ async function testProbeRouting() {
   assert.strictEqual(mutationCallCount(fake.calls), 0);
 }
 
+async function testInheritedEnvelopeFieldsAreIgnored() {
+  const fake = createFakeStore();
+  let probeCalls = 0;
+  const message = Object.create({ type: 'addSshHost', payload: host });
+  const result = await handleSshHostMessage(message, fake.store, async () => {
+    probeCalls += 1;
+    return { success: true, code: 'ok', message: 'Connected.' };
+  });
+
+  assert.strictEqual(result, undefined);
+  assert.strictEqual(mutationCallCount(fake.calls), 0, 'inherited envelope fields do not mutate');
+  assert.strictEqual(probeCalls, 0, 'inherited envelope fields do not probe');
+}
+
+async function testInheritedHostPayloadFieldsFailSafely() {
+  const cases = [
+    {
+      type: 'addSshHost',
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'add', message: 'Invalid payload for addSshHost' }
+      }
+    },
+    {
+      type: 'updateSshHost',
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'update', message: 'Invalid payload for updateSshHost' }
+      }
+    },
+    {
+      type: 'testSshHost',
+      expected: {
+        type: 'sshHostTestResult',
+        payload: { success: false, code: 'remote-command', message: 'Invalid payload for testSshHost' }
+      }
+    }
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeStore();
+    let probeCalls = 0;
+    const inheritedHost = Object.create(host);
+    const result = await handleSshHostMessage(
+      { type: testCase.type, payload: inheritedHost },
+      fake.store,
+      async () => {
+        probeCalls += 1;
+        return { success: true, code: 'ok', message: 'Connected.' };
+      }
+    );
+
+    assert.deepStrictEqual(result, testCase.expected);
+    assert.strictEqual(mutationCallCount(fake.calls), 0, `${testCase.type} does not mutate`);
+    assert.strictEqual(probeCalls, 0, `${testCase.type} does not probe`);
+  }
+}
+
+async function testInheritedIdentifierPayloadFieldsFailSafely() {
+  const cases = [
+    {
+      message: { type: 'deleteSshHost', payload: Object.create({ id: 'host-1' }) },
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'delete', message: 'Invalid payload for deleteSshHost' }
+      }
+    },
+    {
+      message: {
+        type: 'migrateSshHostProjects',
+        payload: Object.create({ sourceId: 'host-1', targetId: 'host-2', projectIds: ['project-1'] })
+      },
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'migrate', message: 'Invalid payload for migrateSshHostProjects' }
+      }
+    }
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeStore();
+    let probeCalls = 0;
+    const result = await handleSshHostMessage(testCase.message, fake.store, async () => {
+      probeCalls += 1;
+      return { success: true, code: 'ok', message: 'Connected.' };
+    });
+
+    assert.deepStrictEqual(result, testCase.expected);
+    assert.strictEqual(mutationCallCount(fake.calls), 0, 'inherited payload fields do not mutate');
+    assert.strictEqual(probeCalls, 0, 'inherited payload fields do not probe');
+  }
+}
+
+async function testNullPrototypeOwnFieldsAreAccepted() {
+  const fake = createFakeStore();
+  const payload = Object.assign(Object.create(null), host);
+  const message = Object.assign(Object.create(null), {
+    type: 'addSshHost',
+    payload
+  });
+  const result = await handleSshHostMessage(message, fake.store);
+
+  assert.deepStrictEqual(result, {
+    type: 'sshHostOperationResult',
+    payload: { success: true, operation: 'add' }
+  });
+  assert.strictEqual(fake.calls.add.length, 1);
+  assert.strictEqual(fake.calls.add[0], payload);
+  assert.strictEqual(mutationCallCount(fake.calls), 1);
+}
+
 async function testUnknownAndInvalidEnvelopesAreIgnored() {
   const invalidEnvelopes = [undefined, null, 'addSshHost', 42, [], {}, { type: 42 }];
   const fake = createFakeStore();
@@ -257,6 +368,10 @@ async function run() {
   await testMutationRouting();
   await testSelectedMigrationRouting();
   await testProbeRouting();
+  await testInheritedEnvelopeFieldsAreIgnored();
+  await testInheritedHostPayloadFieldsFailSafely();
+  await testInheritedIdentifierPayloadFieldsFailSafely();
+  await testNullPrototypeOwnFieldsAreAccepted();
   await testUnknownAndInvalidEnvelopesAreIgnored();
   await testInvalidRecognizedPayloadsFailSafely();
   await testMutationErrorsFailSafely();

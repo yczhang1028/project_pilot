@@ -9,28 +9,44 @@ type HostStore = Pick<
 
 type HostOperation = 'add' | 'update' | 'delete' | 'migrate';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isSshHost(value: unknown): value is SshHost {
-  if (!isRecord(value)) {
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
 
-  const port = value.port;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function isSshHost(value: unknown): value is SshHost {
+  if (!isPlainRecord(value)) {
+    return false;
+  }
+
+  if (!hasOwn(value, 'id') || !hasOwn(value, 'name') || !hasOwn(value, 'hostname')) {
+    return false;
+  }
+  if (!hasOwn(value, 'username') && 'username' in value) {
+    return false;
+  }
+  if (!hasOwn(value, 'port') && 'port' in value) {
+    return false;
+  }
+
+  const port = hasOwn(value, 'port') ? value.port : undefined;
   return typeof value.id === 'string'
     && typeof value.name === 'string'
     && typeof value.hostname === 'string'
-    && (value.username === undefined || typeof value.username === 'string')
-    && (
-      port === undefined
-      || (typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535)
-    );
+    && (!hasOwn(value, 'username') || typeof value.username === 'string')
+    && (port === undefined || (typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535));
 }
 
 function isIdPayload(value: unknown): value is { id: string } {
-  return isRecord(value) && typeof value.id === 'string';
+  return isPlainRecord(value) && hasOwn(value, 'id') && typeof value.id === 'string';
 }
 
 function isMigrationPayload(value: unknown): value is {
@@ -38,12 +54,14 @@ function isMigrationPayload(value: unknown): value is {
   targetId: string;
   projectIds?: string[];
 } {
-  return isRecord(value)
+  return isPlainRecord(value)
+    && hasOwn(value, 'sourceId')
     && typeof value.sourceId === 'string'
+    && hasOwn(value, 'targetId')
     && typeof value.targetId === 'string'
     && (
-      value.projectIds === undefined
-      || (Array.isArray(value.projectIds) && value.projectIds.every(id => typeof id === 'string'))
+      (!hasOwn(value, 'projectIds') && !('projectIds' in value))
+      || (hasOwn(value, 'projectIds') && Array.isArray(value.projectIds) && value.projectIds.every(id => typeof id === 'string'))
     );
 }
 
@@ -78,13 +96,13 @@ export async function handleSshHostMessage(
   store: HostStore,
   probe: (host: SshHost) => Promise<SshProbeResult> = testSshHostConnection
 ): Promise<{ type: string; payload: unknown } | undefined> {
-  if (!isRecord(msg) || typeof msg.type !== 'string') {
+  if (!isPlainRecord(msg) || !hasOwn(msg, 'type') || typeof msg.type !== 'string') {
     return undefined;
   }
 
   switch (msg.type) {
     case 'addSshHost': {
-      if (!isSshHost(msg.payload)) {
+      if (!hasOwn(msg, 'payload') || !isSshHost(msg.payload)) {
         return operationFailure('add', 'Invalid payload for addSshHost');
       }
       const payload = msg.payload;
@@ -92,7 +110,7 @@ export async function handleSshHostMessage(
     }
 
     case 'updateSshHost': {
-      if (!isSshHost(msg.payload)) {
+      if (!hasOwn(msg, 'payload') || !isSshHost(msg.payload)) {
         return operationFailure('update', 'Invalid payload for updateSshHost');
       }
       const payload = msg.payload;
@@ -100,7 +118,7 @@ export async function handleSshHostMessage(
     }
 
     case 'deleteSshHost': {
-      if (!isIdPayload(msg.payload)) {
+      if (!hasOwn(msg, 'payload') || !isIdPayload(msg.payload)) {
         return operationFailure('delete', 'Invalid payload for deleteSshHost');
       }
       const payload = msg.payload;
@@ -108,7 +126,7 @@ export async function handleSshHostMessage(
     }
 
     case 'migrateSshHostProjects': {
-      if (!isMigrationPayload(msg.payload)) {
+      if (!hasOwn(msg, 'payload') || !isMigrationPayload(msg.payload)) {
         return operationFailure('migrate', 'Invalid payload for migrateSshHostProjects');
       }
       const payload = msg.payload;
@@ -120,7 +138,7 @@ export async function handleSshHostMessage(
     }
 
     case 'testSshHost': {
-      if (!isSshHost(msg.payload)) {
+      if (!hasOwn(msg, 'payload') || !isSshHost(msg.payload)) {
         return {
           type: 'sshHostTestResult',
           payload: {
