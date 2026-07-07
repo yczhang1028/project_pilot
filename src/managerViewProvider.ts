@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { getCurrentRemoteStatus } from './remoteContext';
 import { ConfigStore } from './store';
 import { normalizeProjectItemForStorage, normalizeSelectedProjectUri } from './projectPath';
-import { handleSshHostMessage } from './sshHostMessages';
+import { getOwnMessageType, handleSshHostMessage } from './sshHostMessages';
 import { resolveSshTarget } from './sshResolve';
 import { buildRemoteSshUri, parseRawSshPath } from './sshPath';
 
@@ -16,7 +16,7 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'webview-ui', 'dist')]
     };
     webviewView.webview.onDidReceiveMessage(async (msg) => {
-      console.log('Project Pilot: Received message from webview', msg);
+      console.log('Project Pilot: Received message from webview', getOwnMessageType(msg) ?? 'unknown');
 
       const hostResult = await handleSshHostMessage(msg, this.store);
       if (hostResult) {
@@ -191,7 +191,7 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
         config: { autoOpenFullscreen } 
       } 
     } as const;
-    console.log('Project Pilot: Posting state to webview', message);
+    console.log('Project Pilot: Posting message to webview', message.type);
     (view ?? this.currentView)?.webview.postMessage(message);
   }
 

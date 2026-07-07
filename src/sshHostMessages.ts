@@ -9,64 +9,204 @@ type HostStore = Pick<
 
 type HostOperation = 'add' | 'update' | 'delete' | 'migrate';
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
+type OwnDataProperty =
+  | { kind: 'missing' }
+  | { kind: 'invalid' }
+  | { kind: 'value'; value: unknown };
+
+const invalidProperty: OwnDataProperty = { kind: 'invalid' };
+
+function asPlainRecord(value: unknown): object | undefined {
+  if (typeof value !== 'object' || value === null) {
+    return undefined;
   }
 
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
+  try {
+    if (Array.isArray(value)) {
+      return undefined;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-function hasOwn(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
+function readOwnDataProperty(record: object, key: PropertyKey): OwnDataProperty {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (!descriptor) {
+      return { kind: 'missing' };
+    }
+    if (!('value' in descriptor)) {
+      return invalidProperty;
+    }
+    return { kind: 'value', value: descriptor.value };
+  } catch {
+    return invalidProperty;
+  }
 }
 
-function isSshHost(value: unknown): value is SshHost {
-  if (!isPlainRecord(value)) {
-    return false;
+export function getOwnMessageType(value: unknown): string | undefined {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return undefined;
   }
 
-  if (!hasOwn(value, 'id') || !hasOwn(value, 'name') || !hasOwn(value, 'hostname')) {
-    return false;
-  }
-  if (!hasOwn(value, 'username') && 'username' in value) {
-    return false;
-  }
-  if (!hasOwn(value, 'port') && 'port' in value) {
-    return false;
-  }
-
-  const port = hasOwn(value, 'port') ? value.port : undefined;
-  return typeof value.id === 'string'
-    && typeof value.name === 'string'
-    && typeof value.hostname === 'string'
-    && (!hasOwn(value, 'username') || typeof value.username === 'string')
-    && (port === undefined || (typeof port === 'number' && Number.isInteger(port) && port >= 1 && port <= 65535));
+  const type = readOwnDataProperty(record, 'type');
+  return type.kind === 'value' && typeof type.value === 'string'
+    ? type.value
+    : undefined;
 }
 
-function isIdPayload(value: unknown): value is { id: string } {
-  return isPlainRecord(value) && hasOwn(value, 'id') && typeof value.id === 'string';
+function sanitizeSshHost(value: unknown): SshHost | undefined {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const id = readOwnDataProperty(record, 'id');
+  const name = readOwnDataProperty(record, 'name');
+  const hostname = readOwnDataProperty(record, 'hostname');
+  const username = readOwnDataProperty(record, 'username');
+  const port = readOwnDataProperty(record, 'port');
+  if (
+    id.kind !== 'value'
+    || typeof id.value !== 'string'
+    || name.kind !== 'value'
+    || typeof name.value !== 'string'
+    || hostname.kind !== 'value'
+    || typeof hostname.value !== 'string'
+    || username.kind === 'invalid'
+    || port.kind === 'invalid'
+  ) {
+    return undefined;
+  }
+
+  const sanitized: SshHost = {
+    id: id.value,
+    name: name.value,
+    hostname: hostname.value
+  };
+  if (username.kind === 'value') {
+    if (typeof username.value !== 'string') {
+      return undefined;
+    }
+    sanitized.username = username.value;
+  }
+  if (port.kind === 'value') {
+    if (
+      port.value !== undefined
+      && (
+        typeof port.value !== 'number'
+        || !Number.isInteger(port.value)
+        || port.value < 1
+        || port.value > 65535
+      )
+    ) {
+      return undefined;
+    }
+    sanitized.port = port.value;
+  }
+  return sanitized;
 }
 
-function isMigrationPayload(value: unknown): value is {
+function sanitizeIdPayload(value: unknown): { id: string } | undefined {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const id = readOwnDataProperty(record, 'id');
+  return id.kind === 'value' && typeof id.value === 'string'
+    ? { id: id.value }
+    : undefined;
+}
+
+function sanitizeStringArray(value: unknown): string[] | undefined {
+  try {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  const length = readOwnDataProperty(value, 'length');
+  if (
+    length.kind !== 'value'
+    || typeof length.value !== 'number'
+    || !Number.isInteger(length.value)
+    || length.value < 0
+  ) {
+    return undefined;
+  }
+
+  const sanitized: string[] = [];
+  for (let index = 0; index < length.value; index += 1) {
+    const item = readOwnDataProperty(value, String(index));
+    if (item.kind !== 'value' || typeof item.value !== 'string') {
+      return undefined;
+    }
+    sanitized.push(item.value);
+  }
+  return sanitized;
+}
+
+function sanitizeMigrationPayload(value: unknown): {
   sourceId: string;
   targetId: string;
   projectIds?: string[];
-} {
-  return isPlainRecord(value)
-    && hasOwn(value, 'sourceId')
-    && typeof value.sourceId === 'string'
-    && hasOwn(value, 'targetId')
-    && typeof value.targetId === 'string'
-    && (
-      (!hasOwn(value, 'projectIds') && !('projectIds' in value))
-      || (hasOwn(value, 'projectIds') && Array.isArray(value.projectIds) && value.projectIds.every(id => typeof id === 'string'))
-    );
+} | undefined {
+  const record = asPlainRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const sourceId = readOwnDataProperty(record, 'sourceId');
+  const targetId = readOwnDataProperty(record, 'targetId');
+  const projectIds = readOwnDataProperty(record, 'projectIds');
+  if (
+    sourceId.kind !== 'value'
+    || typeof sourceId.value !== 'string'
+    || targetId.kind !== 'value'
+    || typeof targetId.value !== 'string'
+    || projectIds.kind === 'invalid'
+  ) {
+    return undefined;
+  }
+
+  if (projectIds.kind === 'missing') {
+    return { sourceId: sourceId.value, targetId: targetId.value };
+  }
+
+  const sanitizedProjectIds = sanitizeStringArray(projectIds.value);
+  return sanitizedProjectIds
+    ? {
+      sourceId: sourceId.value,
+      targetId: targetId.value,
+      projectIds: sanitizedProjectIds
+    }
+    : undefined;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function errorToMessage(error: unknown): string {
+  try {
+    if (error instanceof Error) {
+      const message = error.message;
+      if (typeof message === 'string') {
+        return message;
+      }
+    }
+  } catch {
+    // Fall through to the generic coercion below.
+  }
+
+  try {
+    return String(error);
+  } catch {
+    return 'Unknown error';
+  }
 }
 
 function operationFailure(operation: HostOperation, message: string) {
@@ -87,7 +227,7 @@ async function runMutation(
       payload: { success: true, operation }
     };
   } catch (error: unknown) {
-    return operationFailure(operation, errorMessage(error));
+    return operationFailure(operation, errorToMessage(error));
   }
 }
 
@@ -96,40 +236,53 @@ export async function handleSshHostMessage(
   store: HostStore,
   probe: (host: SshHost) => Promise<SshProbeResult> = testSshHostConnection
 ): Promise<{ type: string; payload: unknown } | undefined> {
-  if (!isPlainRecord(msg) || !hasOwn(msg, 'type') || typeof msg.type !== 'string') {
+  const type = getOwnMessageType(msg);
+  if (type === undefined) {
     return undefined;
   }
 
-  switch (msg.type) {
+  switch (type) {
     case 'addSshHost': {
-      if (!hasOwn(msg, 'payload') || !isSshHost(msg.payload)) {
+      const payloadProperty = readOwnDataProperty(msg as object, 'payload');
+      const payload = payloadProperty.kind === 'value'
+        ? sanitizeSshHost(payloadProperty.value)
+        : undefined;
+      if (!payload) {
         return operationFailure('add', 'Invalid payload for addSshHost');
       }
-      const payload = msg.payload;
       return runMutation('add', () => store.addSshHost(payload));
     }
 
     case 'updateSshHost': {
-      if (!hasOwn(msg, 'payload') || !isSshHost(msg.payload)) {
+      const payloadProperty = readOwnDataProperty(msg as object, 'payload');
+      const payload = payloadProperty.kind === 'value'
+        ? sanitizeSshHost(payloadProperty.value)
+        : undefined;
+      if (!payload) {
         return operationFailure('update', 'Invalid payload for updateSshHost');
       }
-      const payload = msg.payload;
       return runMutation('update', () => store.updateSshHost(payload));
     }
 
     case 'deleteSshHost': {
-      if (!hasOwn(msg, 'payload') || !isIdPayload(msg.payload)) {
+      const payloadProperty = readOwnDataProperty(msg as object, 'payload');
+      const payload = payloadProperty.kind === 'value'
+        ? sanitizeIdPayload(payloadProperty.value)
+        : undefined;
+      if (!payload) {
         return operationFailure('delete', 'Invalid payload for deleteSshHost');
       }
-      const payload = msg.payload;
       return runMutation('delete', () => store.deleteSshHost(payload.id));
     }
 
     case 'migrateSshHostProjects': {
-      if (!hasOwn(msg, 'payload') || !isMigrationPayload(msg.payload)) {
+      const payloadProperty = readOwnDataProperty(msg as object, 'payload');
+      const payload = payloadProperty.kind === 'value'
+        ? sanitizeMigrationPayload(payloadProperty.value)
+        : undefined;
+      if (!payload) {
         return operationFailure('migrate', 'Invalid payload for migrateSshHostProjects');
       }
-      const payload = msg.payload;
       return runMutation('migrate', () => store.migrateSshHostProjects(
         payload.sourceId,
         payload.targetId,
@@ -138,7 +291,11 @@ export async function handleSshHostMessage(
     }
 
     case 'testSshHost': {
-      if (!hasOwn(msg, 'payload') || !isSshHost(msg.payload)) {
+      const payloadProperty = readOwnDataProperty(msg as object, 'payload');
+      const payload = payloadProperty.kind === 'value'
+        ? sanitizeSshHost(payloadProperty.value)
+        : undefined;
+      if (!payload) {
         return {
           type: 'sshHostTestResult',
           payload: {
@@ -148,7 +305,6 @@ export async function handleSshHostMessage(
           }
         };
       }
-      const payload = msg.payload;
       try {
         return { type: 'sshHostTestResult', payload: await probe(payload) };
       } catch (error: unknown) {
@@ -157,7 +313,7 @@ export async function handleSshHostMessage(
           payload: {
             success: false,
             code: 'remote-command',
-            message: errorMessage(error)
+            message: errorToMessage(error)
           }
         };
       }

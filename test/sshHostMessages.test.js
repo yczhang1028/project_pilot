@@ -90,6 +90,13 @@ async function testMutationRouting() {
       payload: { success: true, operation: testCase.operation }
     });
     assert.deepStrictEqual(fake.calls[testCase.operation], testCase.expectedCalls);
+    if (testCase.operation === 'add' || testCase.operation === 'update') {
+      assert.notStrictEqual(
+        fake.calls[testCase.operation][0],
+        host,
+        'passes a sanitized Host copy to the store'
+      );
+    }
     assert.strictEqual(mutationCallCount(fake.calls), 1, 'routes a mutation exactly once');
     assert.strictEqual(probeCalls, 0, 'does not probe while routing mutations');
   }
@@ -108,6 +115,11 @@ async function testSelectedMigrationRouting() {
     payload: { success: true, operation: 'migrate' }
   });
   assert.deepStrictEqual(fake.calls.migrate, [['host-1', 'host-2', projectIds]]);
+  assert.notStrictEqual(
+    fake.calls.migrate[0][2],
+    projectIds,
+    'passes a fresh dense project ID array to the store'
+  );
   assert.strictEqual(mutationCallCount(fake.calls), 1);
 }
 
@@ -133,6 +145,7 @@ async function testProbeRouting() {
     payload: probeResult
   });
   assert.deepStrictEqual(probeCalls, [host]);
+  assert.notStrictEqual(probeCalls[0], host, 'passes a sanitized Host copy to the probe');
   assert.strictEqual(mutationCallCount(fake.calls), 0);
 }
 
@@ -243,7 +256,8 @@ async function testNullPrototypeOwnFieldsAreAccepted() {
     payload: { success: true, operation: 'add' }
   });
   assert.strictEqual(fake.calls.add.length, 1);
-  assert.strictEqual(fake.calls.add[0], payload);
+  assert.deepStrictEqual(fake.calls.add[0], host);
+  assert.notStrictEqual(fake.calls.add[0], payload);
   assert.strictEqual(mutationCallCount(fake.calls), 1);
 }
 
@@ -265,6 +279,169 @@ async function testUnknownAndInvalidEnvelopesAreIgnored() {
   );
   assert.strictEqual(mutationCallCount(fake.calls), 0);
   assert.strictEqual(probeCalls, 0);
+}
+
+async function testUnreadableEnvelopesAreIgnored() {
+  const fake = createFakeStore();
+  let probeCalls = 0;
+  const probe = async () => {
+    probeCalls += 1;
+    return { success: true, code: 'ok', message: 'Connected.' };
+  };
+  const messages = [
+    new Proxy({ type: 'addSshHost', payload: host }, {
+      getPrototypeOf() {
+        throw new Error('prototype unavailable');
+      }
+    }),
+    new Proxy({ type: 'addSshHost', payload: host }, {
+      getOwnPropertyDescriptor() {
+        throw new Error('descriptor unavailable');
+      }
+    })
+  ];
+
+  for (const message of messages) {
+    assert.strictEqual(await handleSshHostMessage(message, fake.store, probe), undefined);
+  }
+  assert.strictEqual(mutationCallCount(fake.calls), 0, 'unreadable envelopes do not mutate');
+  assert.strictEqual(probeCalls, 0, 'unreadable envelopes do not probe');
+}
+
+async function testUnreadableRecognizedPayloadsFailSafely() {
+  const cases = [
+    {
+      message: {
+        type: 'deleteSshHost',
+        payload: Object.defineProperty({}, 'id', {
+          get() {
+            throw new Error('id unavailable');
+          }
+        })
+      },
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'delete', message: 'Invalid payload for deleteSshHost' }
+      }
+    },
+    {
+      message: {
+        type: 'addSshHost',
+        payload: Object.defineProperty({ ...host }, 'hostname', {
+          get() {
+            throw new Error('hostname unavailable');
+          }
+        })
+      },
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'add', message: 'Invalid payload for addSshHost' }
+      }
+    },
+    {
+      message: {
+        type: 'updateSshHost',
+        payload: new Proxy({ ...host }, {
+          getOwnPropertyDescriptor() {
+            throw new Error('payload descriptor unavailable');
+          }
+        })
+      },
+      expected: {
+        type: 'sshHostOperationResult',
+        payload: { success: false, operation: 'update', message: 'Invalid payload for updateSshHost' }
+      }
+    }
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeStore();
+    let probeCalls = 0;
+    const result = await handleSshHostMessage(testCase.message, fake.store, async () => {
+      probeCalls += 1;
+      return { success: true, code: 'ok', message: 'Connected.' };
+    });
+
+    assert.deepStrictEqual(result, testCase.expected);
+    assert.strictEqual(mutationCallCount(fake.calls), 0, 'unreadable payload does not mutate');
+    assert.strictEqual(probeCalls, 0, 'unreadable payload does not probe');
+  }
+}
+
+async function testSanitizedCopiesAvoidUnsafePropertyReads() {
+  const fake = createFakeStore();
+  const guardedHost = new Proxy({ ...host }, {
+    get() {
+      throw new Error('host values must come from descriptors');
+    }
+  });
+  const guardedMessage = new Proxy({ type: 'addSshHost', payload: guardedHost }, {
+    get() {
+      throw new Error('envelope values must come from descriptors');
+    }
+  });
+
+  const result = await handleSshHostMessage(guardedMessage, fake.store);
+
+  assert.deepStrictEqual(result, {
+    type: 'sshHostOperationResult',
+    payload: { success: true, operation: 'add' }
+  });
+  assert.deepStrictEqual(fake.calls.add, [host]);
+  assert.notStrictEqual(fake.calls.add[0], guardedHost, 'passes a sanitized Host copy to the store');
+
+  const guardedProjectIds = new Proxy(['project-1', 'project-2'], {
+    get() {
+      throw new Error('project IDs must come from descriptors');
+    }
+  });
+  const migrationResult = await handleSshHostMessage({
+    type: 'migrateSshHostProjects',
+    payload: {
+      sourceId: 'host-1',
+      targetId: 'host-2',
+      projectIds: guardedProjectIds
+    }
+  }, fake.store);
+
+  assert.deepStrictEqual(migrationResult, {
+    type: 'sshHostOperationResult',
+    payload: { success: true, operation: 'migrate' }
+  });
+  assert.deepStrictEqual(fake.calls.migrate, [[
+    'host-1',
+    'host-2',
+    ['project-1', 'project-2']
+  ]]);
+  assert.notStrictEqual(fake.calls.migrate[0][2], guardedProjectIds);
+}
+
+async function testSparseAndInheritedProjectIdsFailSafely() {
+  const sparseProjectIds = new Array(2);
+  sparseProjectIds[0] = 'project-1';
+
+  const inheritedProjectIds = new Array(1);
+  const inheritedIndex = Object.create(Array.prototype);
+  inheritedIndex[0] = 'project-1';
+  Object.setPrototypeOf(inheritedProjectIds, inheritedIndex);
+
+  for (const projectIds of [sparseProjectIds, inheritedProjectIds]) {
+    const fake = createFakeStore();
+    const result = await handleSshHostMessage({
+      type: 'migrateSshHostProjects',
+      payload: { sourceId: 'host-1', targetId: 'host-2', projectIds }
+    }, fake.store);
+
+    assert.deepStrictEqual(result, {
+      type: 'sshHostOperationResult',
+      payload: {
+        success: false,
+        operation: 'migrate',
+        message: 'Invalid payload for migrateSshHostProjects'
+      }
+    });
+    assert.strictEqual(mutationCallCount(fake.calls), 0, 'invalid project IDs do not mutate');
+  }
 }
 
 async function testInvalidRecognizedPayloadsFailSafely() {
@@ -338,6 +515,25 @@ async function testMutationErrorsFailSafely() {
     payload: { success: false, operation: 'delete', message: 'delete rejected' }
   });
   assert.strictEqual(mutationCallCount(nonErrorFake.calls), 1);
+
+  const unstringifiable = {
+    [Symbol.toPrimitive]() {
+      throw new Error('cannot coerce');
+    },
+    toString() {
+      throw new Error('cannot stringify');
+    }
+  };
+  const unstringifiableFake = createFakeStore({ update: unstringifiable });
+  const unstringifiableResult = await handleSshHostMessage(
+    { type: 'updateSshHost', payload: host },
+    unstringifiableFake.store
+  );
+  assert.deepStrictEqual(unstringifiableResult, {
+    type: 'sshHostOperationResult',
+    payload: { success: false, operation: 'update', message: 'Unknown error' }
+  });
+  assert.strictEqual(mutationCallCount(unstringifiableFake.calls), 1);
 }
 
 async function testProbeErrorsFailSafely() {
@@ -373,6 +569,10 @@ async function run() {
   await testInheritedIdentifierPayloadFieldsFailSafely();
   await testNullPrototypeOwnFieldsAreAccepted();
   await testUnknownAndInvalidEnvelopesAreIgnored();
+  await testUnreadableEnvelopesAreIgnored();
+  await testUnreadableRecognizedPayloadsFailSafely();
+  await testSanitizedCopiesAvoidUnsafePropertyReads();
+  await testSparseAndInheritedProjectIdsFailSafely();
   await testInvalidRecognizedPayloadsFailSafely();
   await testMutationErrorsFailSafely();
   await testProbeErrorsFailSafely();
