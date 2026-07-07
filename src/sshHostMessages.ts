@@ -9,6 +9,12 @@ type HostStore = Pick<
 
 type HostOperation = 'add' | 'update' | 'delete' | 'migrate';
 
+interface HostResultCorrelation {
+  requestId: string;
+  hostId?: string;
+  targetHostId?: string;
+}
+
 type OwnDataProperty =
   | { kind: 'missing' }
   | { kind: 'invalid' }
@@ -45,6 +51,23 @@ function readOwnDataProperty(record: object, key: PropertyKey): OwnDataProperty 
   } catch {
     return invalidProperty;
   }
+}
+
+function readOptionalRequestId(record: object): { valid: true; requestId?: string } | { valid: false } {
+  const requestId = readOwnDataProperty(record, 'requestId');
+  if (requestId.kind === 'invalid') {
+    return { valid: false };
+  }
+  if (requestId.kind === 'missing') {
+    try {
+      return Reflect.has(record, 'requestId') ? { valid: false } : { valid: true };
+    } catch {
+      return { valid: false };
+    }
+  }
+  return typeof requestId.value === 'string' && requestId.value.trim().length > 0
+    ? { valid: true, requestId: requestId.value }
+    : { valid: false };
 }
 
 export function getOwnMessageType(value: unknown): string | undefined {
@@ -209,25 +232,34 @@ function errorToMessage(error: unknown): string {
   }
 }
 
-function operationFailure(operation: HostOperation, message: string) {
+function correlationFields(correlation?: HostResultCorrelation): Partial<HostResultCorrelation> {
+  return correlation ? { ...correlation } : {};
+}
+
+function operationFailure(
+  operation: HostOperation,
+  message: string,
+  correlation?: HostResultCorrelation
+) {
   return {
     type: 'sshHostOperationResult',
-    payload: { success: false, operation, message }
+    payload: { success: false, operation, message, ...correlationFields(correlation) }
   };
 }
 
 async function runMutation(
   operation: HostOperation,
+  correlation: HostResultCorrelation | undefined,
   mutation: () => Promise<void>
 ): Promise<{ type: string; payload: unknown }> {
   try {
     await mutation();
     return {
       type: 'sshHostOperationResult',
-      payload: { success: true, operation }
+      payload: { success: true, operation, ...correlationFields(correlation) }
     };
   } catch (error: unknown) {
-    return operationFailure(operation, errorToMessage(error));
+    return operationFailure(operation, errorToMessage(error), correlation);
   }
 }
 
@@ -241,6 +273,31 @@ export async function handleSshHostMessage(
     return undefined;
   }
 
+  const request = readOptionalRequestId(msg as object);
+  if (!request.valid) {
+    const operationByType: Partial<Record<string, HostOperation>> = {
+      addSshHost: 'add',
+      updateSshHost: 'update',
+      deleteSshHost: 'delete',
+      migrateSshHostProjects: 'migrate'
+    };
+    const operation = operationByType[type];
+    if (operation) {
+      return operationFailure(operation, `Invalid requestId for ${type}`);
+    }
+    if (type === 'testSshHost') {
+      return {
+        type: 'sshHostTestResult',
+        payload: {
+          success: false,
+          code: 'remote-command',
+          message: 'Invalid requestId for testSshHost'
+        }
+      };
+    }
+    return undefined;
+  }
+
   switch (type) {
     case 'addSshHost': {
       const payloadProperty = readOwnDataProperty(msg as object, 'payload');
@@ -248,9 +305,17 @@ export async function handleSshHostMessage(
         ? sanitizeSshHost(payloadProperty.value)
         : undefined;
       if (!payload) {
-        return operationFailure('add', 'Invalid payload for addSshHost');
+        return operationFailure(
+          'add',
+          'Invalid payload for addSshHost',
+          request.requestId ? { requestId: request.requestId } : undefined
+        );
       }
-      return runMutation('add', () => store.addSshHost(payload));
+      return runMutation(
+        'add',
+        request.requestId ? { requestId: request.requestId, hostId: payload.id } : undefined,
+        () => store.addSshHost(payload)
+      );
     }
 
     case 'updateSshHost': {
@@ -259,9 +324,17 @@ export async function handleSshHostMessage(
         ? sanitizeSshHost(payloadProperty.value)
         : undefined;
       if (!payload) {
-        return operationFailure('update', 'Invalid payload for updateSshHost');
+        return operationFailure(
+          'update',
+          'Invalid payload for updateSshHost',
+          request.requestId ? { requestId: request.requestId } : undefined
+        );
       }
-      return runMutation('update', () => store.updateSshHost(payload));
+      return runMutation(
+        'update',
+        request.requestId ? { requestId: request.requestId, hostId: payload.id } : undefined,
+        () => store.updateSshHost(payload)
+      );
     }
 
     case 'deleteSshHost': {
@@ -270,9 +343,17 @@ export async function handleSshHostMessage(
         ? sanitizeIdPayload(payloadProperty.value)
         : undefined;
       if (!payload) {
-        return operationFailure('delete', 'Invalid payload for deleteSshHost');
+        return operationFailure(
+          'delete',
+          'Invalid payload for deleteSshHost',
+          request.requestId ? { requestId: request.requestId } : undefined
+        );
       }
-      return runMutation('delete', () => store.deleteSshHost(payload.id));
+      return runMutation(
+        'delete',
+        request.requestId ? { requestId: request.requestId, hostId: payload.id } : undefined,
+        () => store.deleteSshHost(payload.id)
+      );
     }
 
     case 'migrateSshHostProjects': {
@@ -281,13 +362,27 @@ export async function handleSshHostMessage(
         ? sanitizeMigrationPayload(payloadProperty.value)
         : undefined;
       if (!payload) {
-        return operationFailure('migrate', 'Invalid payload for migrateSshHostProjects');
+        return operationFailure(
+          'migrate',
+          'Invalid payload for migrateSshHostProjects',
+          request.requestId ? { requestId: request.requestId } : undefined
+        );
       }
-      return runMutation('migrate', () => store.migrateSshHostProjects(
-        payload.sourceId,
-        payload.targetId,
-        payload.projectIds
-      ));
+      return runMutation(
+        'migrate',
+        request.requestId
+          ? {
+            requestId: request.requestId,
+            hostId: payload.sourceId,
+            targetHostId: payload.targetId
+          }
+          : undefined,
+        () => store.migrateSshHostProjects(
+          payload.sourceId,
+          payload.targetId,
+          payload.projectIds
+        )
+      );
     }
 
     case 'testSshHost': {
@@ -301,19 +396,27 @@ export async function handleSshHostMessage(
           payload: {
             success: false,
             code: 'remote-command',
-            message: 'Invalid payload for testSshHost'
+            message: 'Invalid payload for testSshHost',
+            ...(request.requestId ? { requestId: request.requestId } : {})
           }
         };
       }
+      const correlation = request.requestId
+        ? { requestId: request.requestId, hostId: payload.id }
+        : undefined;
       try {
-        return { type: 'sshHostTestResult', payload: await probe(payload) };
+        return {
+          type: 'sshHostTestResult',
+          payload: { ...await probe(payload), ...correlationFields(correlation) }
+        };
       } catch (error: unknown) {
         return {
           type: 'sshHostTestResult',
           payload: {
             success: false,
             code: 'remote-command',
-            message: errorToMessage(error)
+            message: errorToMessage(error),
+            ...correlationFields(correlation)
           }
         };
       }

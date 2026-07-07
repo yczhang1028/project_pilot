@@ -122,6 +122,15 @@ assert.deepEqual(model.normalizeUiState(undefined), { projects: [], sshHosts: []
 
 assert.equal(model.extractRemotePathForManagedProject('dev@example.com:/srv/repo'), '/srv/repo');
 assert.equal(
+  model.extractRemotePathForManagedProject('dev@[2001:db8::1]:/srv/repo'),
+  '/srv/repo'
+);
+assert.equal(
+  model.extractRemotePathForManagedProject('dev@2001:db8::1:/srv/repo'),
+  null,
+  'does not corrupt ambiguous unbracketed IPv6 authorities'
+);
+assert.equal(
   model.extractRemotePathForManagedProject('vscode-remote://ssh-remote+example.com/C:/repo'),
   'C:/repo'
 );

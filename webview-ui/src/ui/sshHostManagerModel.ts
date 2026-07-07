@@ -140,8 +140,34 @@ export function extractRemotePathForManagedProject(value: string): string | null
     return /^\/[a-zA-Z]:[\\/]/.test(path) ? path.slice(1) : path;
   }
 
-  const separatorIndex = trimmed.indexOf(':');
-  if (separatorIndex <= 0 || (separatorIndex === 1 && /^[a-zA-Z]$/.test(trimmed[0]))) {
+  const firstPathSeparator = trimmed.search(/[\\/]/);
+  const authorityPrefix = firstPathSeparator >= 0 ? trimmed.slice(0, firstPathSeparator) : trimmed;
+  const colonCount = (authorityPrefix.match(/:/g) ?? []).length;
+  const isWindowsRemotePath = /^[^:]+:[a-zA-Z]:$/i.test(authorityPrefix);
+  if (!authorityPrefix.includes('[') && colonCount > 1 && !isWindowsRemotePath) {
+    return null;
+  }
+
+  let separatorIndex = -1;
+  let insideBrackets = false;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+    if (character === '[') {
+      if (insideBrackets) {
+        return null;
+      }
+      insideBrackets = true;
+    } else if (character === ']') {
+      if (!insideBrackets) {
+        return null;
+      }
+      insideBrackets = false;
+    } else if (character === ':' && !insideBrackets) {
+      separatorIndex = index;
+      break;
+    }
+  }
+  if (insideBrackets || separatorIndex <= 0 || (separatorIndex === 1 && /^[a-zA-Z]$/.test(trimmed[0]))) {
     return null;
   }
   const authority = trimmed.slice(0, separatorIndex).trim();

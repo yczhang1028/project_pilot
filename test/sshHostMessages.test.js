@@ -149,6 +149,129 @@ async function testProbeRouting() {
   assert.strictEqual(mutationCallCount(fake.calls), 0);
 }
 
+async function testCorrelatedRouting() {
+  const cases = [
+    {
+      message: { type: 'addSshHost', requestId: 'request-add', payload: host },
+      operation: 'add',
+      hostId: 'host-1'
+    },
+    {
+      message: { type: 'updateSshHost', requestId: 'request-update', payload: host },
+      operation: 'update',
+      hostId: 'host-1'
+    },
+    {
+      message: { type: 'deleteSshHost', requestId: 'request-delete', payload: { id: 'host-1' } },
+      operation: 'delete',
+      hostId: 'host-1'
+    },
+    {
+      message: {
+        type: 'migrateSshHostProjects',
+        requestId: 'request-migrate',
+        payload: { sourceId: 'host-1', targetId: 'host-2' }
+      },
+      operation: 'migrate',
+      hostId: 'host-1',
+      targetHostId: 'host-2'
+    }
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeStore();
+    const result = await handleSshHostMessage(testCase.message, fake.store);
+    assert.deepStrictEqual(result, {
+      type: 'sshHostOperationResult',
+      payload: {
+        success: true,
+        operation: testCase.operation,
+        requestId: testCase.message.requestId,
+        hostId: testCase.hostId,
+        ...(testCase.targetHostId ? { targetHostId: testCase.targetHostId } : {})
+      }
+    });
+    assert.strictEqual(mutationCallCount(fake.calls), 1);
+  }
+
+  const fake = createFakeStore();
+  const probeResult = { success: true, code: 'ok', message: 'Connected.' };
+  const result = await handleSshHostMessage({
+    type: 'testSshHost',
+    requestId: 'request-probe',
+    payload: host
+  }, fake.store, async () => probeResult);
+  assert.deepStrictEqual(result, {
+    type: 'sshHostTestResult',
+    payload: {
+      ...probeResult,
+      requestId: 'request-probe',
+      hostId: 'host-1'
+    }
+  });
+}
+
+async function testUnsafeRequestIdsFailSafely() {
+  const messages = [
+    { type: 'addSshHost', requestId: 42, payload: host },
+    { type: 'addSshHost', requestId: '', payload: host },
+    Object.defineProperty({ type: 'addSshHost', payload: host }, 'requestId', {
+      get() {
+        throw new Error('requestId unavailable');
+      }
+    })
+  ];
+
+  const inheritedDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'requestId');
+  Object.defineProperty(Object.prototype, 'requestId', {
+    configurable: true,
+    value: 'inherited-request'
+  });
+  messages.push({ type: 'addSshHost', payload: host });
+
+  try {
+    for (const message of messages) {
+      const fake = createFakeStore();
+      const result = await handleSshHostMessage(message, fake.store);
+      assert.deepStrictEqual(result, {
+        type: 'sshHostOperationResult',
+        payload: {
+          success: false,
+          operation: 'add',
+          message: 'Invalid requestId for addSshHost'
+        }
+      });
+      assert.strictEqual(mutationCallCount(fake.calls), 0, 'unsafe request IDs do not mutate');
+    }
+  } finally {
+    if (inheritedDescriptor) {
+      Object.defineProperty(Object.prototype, 'requestId', inheritedDescriptor);
+    } else {
+      delete Object.prototype.requestId;
+    }
+  }
+
+  const fake = createFakeStore();
+  let probeCalls = 0;
+  const probeResult = await handleSshHostMessage({
+    type: 'testSshHost',
+    requestId: 99,
+    payload: host
+  }, fake.store, async () => {
+    probeCalls += 1;
+    return { success: true, code: 'ok', message: 'Connected.' };
+  });
+  assert.deepStrictEqual(probeResult, {
+    type: 'sshHostTestResult',
+    payload: {
+      success: false,
+      code: 'remote-command',
+      message: 'Invalid requestId for testSshHost'
+    }
+  });
+  assert.strictEqual(probeCalls, 0);
+}
+
 async function testInheritedEnvelopeFieldsAreIgnored() {
   const fake = createFakeStore();
   let probeCalls = 0;
@@ -534,6 +657,22 @@ async function testMutationErrorsFailSafely() {
     payload: { success: false, operation: 'update', message: 'Unknown error' }
   });
   assert.strictEqual(mutationCallCount(unstringifiableFake.calls), 1);
+
+  const correlatedFake = createFakeStore({ update: new Error('update rejected') });
+  const correlatedResult = await handleSshHostMessage(
+    { type: 'updateSshHost', requestId: 'request-update-error', payload: host },
+    correlatedFake.store
+  );
+  assert.deepStrictEqual(correlatedResult, {
+    type: 'sshHostOperationResult',
+    payload: {
+      success: false,
+      operation: 'update',
+      message: 'update rejected',
+      requestId: 'request-update-error',
+      hostId: 'host-1'
+    }
+  });
 }
 
 async function testProbeErrorsFailSafely() {
@@ -558,12 +697,32 @@ async function testProbeErrorsFailSafely() {
   });
   assert.strictEqual(probeCalls, 1);
   assert.strictEqual(mutationCallCount(fake.calls), 0);
+
+  const correlatedResult = await handleSshHostMessage(
+    { type: 'testSshHost', requestId: 'request-probe-error', payload: host },
+    fake.store,
+    async () => {
+      throw new Error('correlated probe failed');
+    }
+  );
+  assert.deepStrictEqual(correlatedResult, {
+    type: 'sshHostTestResult',
+    payload: {
+      success: false,
+      code: 'remote-command',
+      message: 'correlated probe failed',
+      requestId: 'request-probe-error',
+      hostId: 'host-1'
+    }
+  });
 }
 
 async function run() {
   await testMutationRouting();
   await testSelectedMigrationRouting();
   await testProbeRouting();
+  await testCorrelatedRouting();
+  await testUnsafeRequestIdsFailSafely();
   await testInheritedEnvelopeFieldsAreIgnored();
   await testInheritedHostPayloadFieldsFailSafely();
   await testInheritedIdentifierPayloadFieldsFailSafely();

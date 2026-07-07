@@ -57,6 +57,9 @@ export interface SshHostOperationResult {
   success: boolean;
   operation: SshHostOperation;
   message?: string;
+  requestId?: string;
+  hostId?: string;
+  targetHostId?: string;
 }
 
 export type SshProbeCode =
@@ -72,6 +75,8 @@ export interface SshHostTestResult {
   success: boolean;
   code: SshProbeCode;
   message: string;
+  requestId?: string;
+  hostId?: string;
   resolution?: {
     host?: string;
     resolvedHostname?: string;
