@@ -5,10 +5,17 @@ import * as net from 'net';
 import { userInfo } from 'os';
 import { promisify } from 'util';
 import type { SshHost } from './sshHosts';
-import { getRawSshPathFromRemoteUri, normalizeRemoteSshPath, parseRawSshPath } from './sshPath';
+import {
+  buildRemoteSshUriFromTarget,
+  getRawSshPathFromRemoteUri,
+  normalizeRemoteSshPath,
+  parseRawSshPath
+} from './sshPath';
 
 const execFileAsync = promisify(execFile);
 const WINDOWS_SSH_PATH = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe';
+const INFORMATIONAL_RESOLUTION_TIMEOUT_MS = 1_000;
+const ASCII_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 export interface SshResolutionResult {
   success: boolean;
@@ -67,14 +74,51 @@ function parseSshConfig(stdout: string): Record<string, string> {
   return config;
 }
 
+interface ChildProcessFailure {
+  message: string;
+  code?: string | number;
+  killed: boolean;
+  stdout: string;
+  stderr: string;
+}
+
+function outputText(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Buffer.isBuffer(value)) {
+    return value.toString('utf8');
+  }
+  return '';
+}
+
+function normalizeChildProcessFailure(error: unknown): ChildProcessFailure {
+  const properties = typeof error === 'object' && error !== null
+    ? error as Record<string, unknown>
+    : undefined;
+  const code = properties?.code;
+
+  return {
+    message: error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'The SSH command failed.',
+    ...(typeof code === 'string' || typeof code === 'number' ? { code } : {}),
+    killed: properties?.killed === true,
+    stdout: outputText(properties?.stdout),
+    stderr: outputText(properties?.stderr)
+  };
+}
+
 async function runSshConfigLookup(host: string, username?: string): Promise<Record<string, string>> {
   const args = ['-G'];
   if (username) {
     args.push('-l', username);
   }
-  args.push(host);
+  args.push('--', host);
 
-  let lastError: unknown;
+  let lastError: ChildProcessFailure | undefined;
 
   for (const candidate of getSshCommandCandidates()) {
     try {
@@ -84,14 +128,15 @@ async function runSshConfigLookup(host: string, username?: string): Promise<Reco
         windowsHide: true
       });
       return parseSshConfig(stdout);
-    } catch (error: any) {
-      if (typeof error?.stdout === 'string' && error.stdout.trim()) {
-        return parseSshConfig(error.stdout);
+    } catch (error: unknown) {
+      const failure = normalizeChildProcessFailure(error);
+      if (failure.stdout.trim()) {
+        return parseSshConfig(failure.stdout);
       }
 
-      lastError = error;
+      lastError = failure;
 
-      if (error?.code !== 'ENOENT') {
+      if (failure.code !== 'ENOENT') {
         break;
       }
     }
@@ -221,6 +266,14 @@ function getProbeValidationError(host: SshHost): string | undefined {
     return 'SSH Host hostname is required.';
   }
 
+  if (ASCII_CONTROL_CHARACTERS.test(host.hostname)) {
+    return 'SSH Host hostname cannot contain control characters.';
+  }
+
+  if (host.username !== undefined && ASCII_CONTROL_CHARACTERS.test(host.username)) {
+    return 'SSH Host username cannot contain control characters.';
+  }
+
   if (
     host.port !== undefined
     && (!Number.isInteger(host.port) || host.port < 1 || host.port > 65535)
@@ -231,41 +284,44 @@ function getProbeValidationError(host: SshHost): string | undefined {
   return undefined;
 }
 
-function getUsefulErrorMessage(error: any): string {
-  const rawMessage = [error?.stderr, error?.message]
-    .find(value => typeof value === 'string' && value.trim()) ?? 'The SSH command failed.';
-
-  return rawMessage
-    .replace(/\u001b\[[0-9;]*m/g, '')
+function getSafeHostName(host: SshHost): string {
+  const displayName = host.name?.trim() || host.hostname?.trim() || 'Unnamed';
+  return displayName
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 500);
+    .slice(0, 100) || 'Unnamed';
 }
 
-function classifyProbeFailure(error: any, allCandidatesMissing: boolean): Exclude<SshProbeCode, 'ok'> {
+function classifyProbeFailure(
+  error: ChildProcessFailure,
+  allCandidatesMissing: boolean
+): Exclude<SshProbeCode, 'ok'> {
   if (allCandidatesMissing) {
     return 'ssh-not-found';
   }
 
-  const details = getUsefulErrorMessage(error);
-  if (error?.killed || error?.code === 'ETIMEDOUT' || /timed? out|timeout/i.test(details)) {
+  const diagnosticText = `${error.stderr}\n${error.message}`;
+  if (error.killed || error.code === 'ETIMEDOUT' || /timed? out|timeout/i.test(diagnosticText)) {
     return 'timeout';
   }
-  if (/could not resolve hostname|name or service not known|no such host/i.test(details)) {
+  if (/could not resolve hostname|name or service not known|no such host/i.test(diagnosticText)) {
     return 'dns';
   }
-  if (/host key verification failed|remote host identification (?:has )?changed/i.test(details)) {
+  if (/host key verification failed|remote host identification (?:has )?changed/i.test(diagnosticText)) {
     return 'host-key';
   }
-  if (/permission denied|authentication failed/i.test(details)) {
+  if (
+    /permission denied|authentication failed|no supported authentication methods|too many authentication failures/i
+      .test(diagnosticText)
+  ) {
     return 'auth';
   }
   return 'remote-command';
 }
 
-function buildProbeFailureMessage(hostName: string, code: Exclude<SshProbeCode, 'ok'>, error: any): string {
+function buildProbeFailureMessage(hostName: string, code: Exclude<SshProbeCode, 'ok'>): string {
   const prefix = `SSH Host "${hostName}"`;
-  const details = getUsefulErrorMessage(error);
 
   switch (code) {
     case 'ssh-not-found':
@@ -273,19 +329,66 @@ function buildProbeFailureMessage(hostName: string, code: Exclude<SshProbeCode, 
     case 'timeout':
       return `${prefix} connection timed out.`;
     case 'dns':
-      return `${prefix} hostname could not be resolved. ${details}`;
+      return `${prefix} hostname could not be resolved.`;
     case 'host-key':
-      return `${prefix} failed host-key verification. ${details}`;
+      return `${prefix} failed host-key verification. Review the saved host key before retrying.`;
     case 'auth':
       return `${prefix} authentication failed. Password-only Hosts cannot pass this non-interactive BatchMode probe.`;
     case 'remote-command':
-      return `${prefix} connection probe failed. ${details}`;
+      return `${prefix} transport and authentication may have succeeded, but the remote command failed or is restricted.`;
   }
+}
+
+function resolveSshTargetWithinDeadline(input: string): Promise<SshResolutionResult | undefined> {
+  const resolution: Promise<SshResolutionResult | undefined> = resolveSshTarget(input)
+    .catch(() => undefined);
+  let timeout: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<undefined>(resolve => {
+    timeout = setTimeout(() => resolve(undefined), INFORMATIONAL_RESOLUTION_TIMEOUT_MS);
+  });
+
+  return Promise.race([resolution, deadline]).finally(() => clearTimeout(timeout));
+}
+
+type ProbeCommandResult =
+  | { success: true }
+  | {
+    success: false;
+    error: ChildProcessFailure;
+    allCandidatesMissing: boolean;
+  };
+
+async function runSshProbe(args: string[]): Promise<ProbeCommandResult> {
+  let lastError: ChildProcessFailure | undefined;
+  let missingCandidateCount = 0;
+  const candidates = getSshCommandCandidates();
+  for (const candidate of candidates) {
+    try {
+      await execFileAsync(candidate, args, {
+        timeout: 10_000,
+        windowsHide: true
+      });
+      return { success: true };
+    } catch (error: unknown) {
+      const failure = normalizeChildProcessFailure(error);
+      lastError = failure;
+      if (failure.code !== 'ENOENT') {
+        break;
+      }
+      missingCandidateCount += 1;
+    }
+  }
+
+  return {
+    success: false,
+    error: lastError ?? normalizeChildProcessFailure(new Error('The SSH command failed.')),
+    allCandidatesMissing: missingCandidateCount === candidates.length
+  };
 }
 
 export async function testSshHostConnection(host: SshHost): Promise<SshProbeResult> {
   const validationError = getProbeValidationError(host);
-  const hostName = host.name?.trim() || host.hostname?.trim() || 'Unnamed';
+  const hostName = getSafeHostName(host);
   if (validationError) {
     return {
       success: false,
@@ -297,12 +400,12 @@ export async function testSshHostConnection(host: SshHost): Promise<SshProbeResu
   const hostname = host.hostname.trim();
   const username = host.username?.trim();
   const target = username ? `${username}@${hostname}` : hostname;
-  let resolution: SshResolutionResult | undefined;
-  try {
-    resolution = await resolveSshTarget(`${target}:/`);
-  } catch {
-    // A failed informational resolution must not replace the real SSH probe result.
-  }
+  const resolutionInput = buildRemoteSshUriFromTarget({
+    hostname,
+    ...(username ? { username } : {}),
+    ...(host.port !== undefined ? { port: host.port } : {})
+  }, '/');
+  const resolutionPromise = resolveSshTargetWithinDeadline(resolutionInput);
 
   const args = [
     '-T',
@@ -314,37 +417,26 @@ export async function testSshHostConnection(host: SshHost): Promise<SshProbeResu
   if (host.port !== undefined) {
     args.push('-p', String(host.port));
   }
-  args.push(target, 'exit');
+  args.push('--', target, 'exit');
 
-  let lastError: any;
-  let missingCandidateCount = 0;
-  const candidates = getSshCommandCandidates();
-  for (const candidate of candidates) {
-    try {
-      await execFileAsync(candidate, args, {
-        timeout: 10_000,
-        windowsHide: true
-      });
-      return {
-        success: true,
-        code: 'ok',
-        message: `SSH Host "${hostName}" connection succeeded.`,
-        ...(resolution ? { resolution } : {})
-      };
-    } catch (error: any) {
-      lastError = error;
-      if (error?.code !== 'ENOENT') {
-        break;
-      }
-      missingCandidateCount += 1;
-    }
+  const [probe, resolution] = await Promise.all([
+    runSshProbe(args),
+    resolutionPromise
+  ]);
+  if (probe.success) {
+    return {
+      success: true,
+      code: 'ok',
+      message: `SSH Host "${hostName}" connection succeeded.`,
+      ...(resolution ? { resolution } : {})
+    };
   }
 
-  const code = classifyProbeFailure(lastError, missingCandidateCount === candidates.length);
+  const code = classifyProbeFailure(probe.error, probe.allCandidatesMissing);
   return {
     success: false,
     code,
-    message: buildProbeFailureMessage(hostName, code, lastError),
+    message: buildProbeFailureMessage(hostName, code),
     ...(resolution ? { resolution } : {})
   };
 }
