@@ -1,4 +1,13 @@
 import * as vscode from 'vscode';
+import {
+  materializeManagedProject,
+  migrateSshState,
+  resolveManagedSshProject,
+  validateSshHost,
+  type SshHost,
+  type SshMigrationWarning,
+  type SshStateLike
+} from './sshHosts';
 
 export type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
 
@@ -15,22 +24,31 @@ export interface ProjectItem {
   isFavorite?: boolean; // 是否收藏
   clickCount?: number; // 点击次数
   lastAccessed?: string; // 最后访问时间
+  sshHostId?: string;
+  remotePath?: string;
 }
 
 export interface UISettings {
   compactMode?: boolean;
   viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;
-  outlineMode?: 'group' | 'target' | 'type' | 'flat';
+  outlineMode?: 'group' | 'host' | 'type' | 'flat';
 }
 
-interface State {
+type UISettingsUpdate = Omit<Partial<UISettings>, 'outlineMode'> & {
+  outlineMode?: UISettings['outlineMode'] | 'target';
+};
+
+export interface State {
+  schemaVersion: 2;
+  sshHosts: SshHost[];
   projects: ProjectItem[];
   uiSettings?: UISettings;
 }
 
 export class ConfigStore {
-  private _state: State = { projects: [] };
+  private _state: State = { schemaVersion: 2, sshHosts: [], projects: [] };
+  private _migrationWarnings: SshMigrationWarning[] = [];
   private fileUri!: vscode.Uri;
   private fileWatcher?: vscode.FileSystemWatcher;
   private onChangeCallback?: () => void;
@@ -38,6 +56,10 @@ export class ConfigStore {
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   get state() { return this._state; }
+
+  get migrationWarnings(): readonly SshMigrationWarning[] {
+    return this._migrationWarnings;
+  }
   
   get uiSettings(): UISettings {
     return this._state.uiSettings || {
@@ -51,6 +73,103 @@ export class ConfigStore {
     this.onChangeCallback = callback;
   }
 
+  private normalizeIncomingState(incoming: unknown): {
+    state: State;
+    warnings: SshMigrationWarning[];
+    changed: boolean;
+  } {
+    if (!incoming || typeof incoming !== 'object' || !Array.isArray((incoming as { projects?: unknown }).projects)) {
+      throw new Error('Invalid config state: projects must be an array');
+    }
+
+    const migration = migrateSshState(incoming as SshStateLike);
+    const sshHosts: SshHost[] = [];
+    for (const host of migration.state.sshHosts) {
+      sshHosts.push(validateSshHost(host, sshHosts));
+    }
+
+    const projects = migration.state.projects.map(project => {
+      const isSshProject = project.type === 'ssh' || project.type === 'ssh-workspace';
+      const hasManagedFields = project.sshHostId !== undefined || project.remotePath !== undefined;
+      if (!isSshProject || !hasManagedFields) {
+        return project;
+      }
+      if (typeof project.sshHostId !== 'string' || !project.sshHostId.trim()) {
+        throw new Error(`Managed SSH project "${project.name}" must reference an SSH Host`);
+      }
+      if (typeof project.remotePath !== 'string' || !project.remotePath.trim()) {
+        throw new Error('SSH project remote path cannot be empty');
+      }
+
+      // The resolver validates the Host reference and path before materialization.
+      resolveManagedSshProject(project, sshHosts);
+      return materializeManagedProject(project, sshHosts) as ProjectItem;
+    });
+
+    const outlineMode = migration.state.uiSettings?.outlineMode;
+    if (outlineMode !== undefined && !['group', 'host', 'type', 'flat'].includes(outlineMode)) {
+      throw new Error(`Invalid outline mode "${outlineMode}"`);
+    }
+    const uiSettings = migration.state.uiSettings as UISettings | undefined;
+    const state: State = {
+      schemaVersion: 2,
+      sshHosts,
+      projects,
+      ...(uiSettings ? { uiSettings } : {})
+    };
+
+    return {
+      state,
+      warnings: migration.warnings,
+      changed: migration.changed || JSON.stringify(state) !== JSON.stringify(migration.state)
+    };
+  }
+
+  private async applyIncomingState(
+    incoming: unknown,
+    options: { persist: 'always' | 'if-changed' | 'never'; notify?: boolean }
+  ): Promise<void> {
+    const normalized = this.normalizeIncomingState(incoming);
+    const previousState = this._state;
+    const previousWarnings = this._migrationWarnings;
+    this._state = normalized.state;
+    this._migrationWarnings = normalized.warnings;
+
+    try {
+      if (options.persist === 'always' || (options.persist === 'if-changed' && normalized.changed)) {
+        await this.save();
+      }
+    } catch (error) {
+      this._state = previousState;
+      this._migrationWarnings = previousWarnings;
+      throw error;
+    }
+
+    if (options.notify) {
+      this.onChangeCallback?.();
+    }
+  }
+
+  private async mutate(mutator: (draft: State) => void): Promise<void> {
+    const previousState = this._state;
+    const previousWarnings = this._migrationWarnings;
+    const draft = cloneState(this._state);
+    mutator(draft);
+    const normalized = this.normalizeIncomingState(draft);
+
+    this._state = normalized.state;
+    this._migrationWarnings = normalized.warnings;
+    try {
+      await this.save();
+    } catch (error) {
+      this._state = previousState;
+      this._migrationWarnings = previousWarnings;
+      throw error;
+    }
+
+    this.onChangeCallback?.();
+  }
+
   async init() {
     // 确保配置存储在本地 - 即使连接到远程机器，项目配置也始终在本地管理
     console.log('Project Pilot: Initializing local configuration storage...');
@@ -59,21 +178,14 @@ export class ConfigStore {
     this.fileUri = vscode.Uri.joinPath(dir, 'projects.json');
     console.log('Project Pilot: Configuration will be stored at:', this.fileUri.fsPath);
     
+    let buf: Uint8Array | undefined;
     try {
-      const buf = await vscode.workspace.fs.readFile(this.fileUri);
-      this._state = JSON.parse(Buffer.from(buf).toString('utf8')) as State;
-      if (!this._state.projects) this._state.projects = [];
-      if (!this._state.uiSettings) {
-        this._state.uiSettings = {
-          compactMode: false,
-          viewMode: 'grid',
-          selectedGroup: '',
-          outlineMode: 'group'
-        };
-      }
+      buf = await vscode.workspace.fs.readFile(this.fileUri);
     } catch {
       // 如果配置文件不存在，创建一个示例项目
       this._state = {
+        schemaVersion: 2,
+        sshHosts: [],
         projects: [
           {
             id: 'welcome-demo',
@@ -96,6 +208,11 @@ export class ConfigStore {
       };
       await this.save();
     }
+
+    if (buf) {
+      const incoming = JSON.parse(Buffer.from(buf).toString('utf8')) as unknown;
+      await this.applyIncomingState(incoming, { persist: 'if-changed' });
+    }
     
     // 设置文件监听器
     this.setupFileWatcher();
@@ -117,15 +234,9 @@ export class ConfigStore {
       console.log('Project Pilot: Configuration file changed, reloading...');
       try {
         const buf = await vscode.workspace.fs.readFile(this.fileUri);
-        const newState = JSON.parse(Buffer.from(buf).toString('utf8')) as State;
-        if (newState.projects) {
-          this._state = newState;
-          vscode.window.showInformationMessage('Project Pilot configuration reloaded');
-          // 通知视图更新
-          if (this.onChangeCallback) {
-            this.onChangeCallback();
-          }
-        }
+        const incoming = JSON.parse(Buffer.from(buf).toString('utf8')) as unknown;
+        await this.applyIncomingState(incoming, { persist: 'if-changed', notify: true });
+        vscode.window.showInformationMessage('Project Pilot configuration reloaded');
       } catch (error) {
         console.error('Project Pilot: Failed to reload configuration:', error);
         vscode.window.showWarningMessage('Failed to reload Project Pilot configuration. Please check the JSON syntax.');
@@ -144,14 +255,8 @@ export class ConfigStore {
     console.log('Project Pilot: Manually reloading configuration...');
     try {
       const buf = await vscode.workspace.fs.readFile(this.fileUri);
-      const newState = JSON.parse(Buffer.from(buf).toString('utf8')) as State;
-      if (newState.projects) {
-        this._state = newState;
-        // 通知视图更新
-        if (this.onChangeCallback) {
-          this.onChangeCallback();
-        }
-      }
+      const incoming = JSON.parse(Buffer.from(buf).toString('utf8')) as unknown;
+      await this.applyIncomingState(incoming, { persist: 'if-changed', notify: true });
     } catch (error) {
       console.error('Project Pilot: Failed to reload configuration:', error);
       throw error;
@@ -165,46 +270,38 @@ export class ConfigStore {
 
   async addProject(p: ProjectItem) {
     p.id = p.id ?? genId();
-    this._state.projects.push(p);
-    await this.save();
-    if (this.onChangeCallback) {
-      this.onChangeCallback();
-    }
+    await this.mutate(state => {
+      state.projects.push({ ...p });
+    });
   }
 
   async upsertProject(p: ProjectItem) {
     if (!p.id) p.id = genId();
-    const idx = this._state.projects.findIndex(x => x.id === p.id);
-    if (idx >= 0) this._state.projects[idx] = p; else this._state.projects.push(p);
-    await this.save();
-    if (this.onChangeCallback) {
-      this.onChangeCallback();
-    }
+    await this.mutate(state => {
+      const idx = state.projects.findIndex(x => x.id === p.id);
+      if (idx >= 0) state.projects[idx] = { ...p }; else state.projects.push({ ...p });
+    });
   }
 
   async deleteProject(id: string) {
-    this._state.projects = this._state.projects.filter(p => p.id !== id);
-    await this.save();
-    if (this.onChangeCallback) {
-      this.onChangeCallback();
-    }
+    await this.mutate(state => {
+      state.projects = state.projects.filter(p => p.id !== id);
+    });
   }
 
   async recordProjectAccess(id: string) {
-    const project = this._state.projects.find(p => p.id === id);
-    if (project) {
+    if (!this._state.projects.some(project => project.id === id)) return;
+    await this.mutate(state => {
+      const project = state.projects.find(candidate => candidate.id === id)!;
       project.clickCount = (project.clickCount || 0) + 1;
       project.lastAccessed = new Date().toISOString();
-      await this.save();
-      if (this.onChangeCallback) {
-        this.onChangeCallback();
-      }
-    }
+    });
   }
 
   async toggleFavorite(id: string) {
-    const project = this._state.projects.find(p => p.id === id);
-    if (project) {
+    if (!this._state.projects.some(project => project.id === id)) return;
+    await this.mutate(state => {
+      const project = state.projects.find(candidate => candidate.id === id)!;
       project.isFavorite = !project.isFavorite;
       
       // 收藏功能完全独立于分组系统
@@ -223,32 +320,95 @@ export class ConfigStore {
         }
       }
       
-      await this.save();
-      if (this.onChangeCallback) {
-        this.onChangeCallback();
-      }
-    }
+    });
   }
 
-  async updateUISettings(settings: Partial<UISettings>) {
-    if (!this._state.uiSettings) {
-      this._state.uiSettings = {
-        compactMode: false,
-        viewMode: 'grid',
-        selectedGroup: '',
-        outlineMode: 'group'
+  async updateUISettings(settings: UISettingsUpdate) {
+    const normalizedSettings: Partial<UISettings> = settings.outlineMode === 'target'
+      ? { ...settings, outlineMode: 'host' }
+      : settings as Partial<UISettings>;
+    await this.mutate(state => {
+      if (!state.uiSettings) {
+        state.uiSettings = {
+          compactMode: false,
+          viewMode: 'grid',
+          selectedGroup: '',
+          outlineMode: 'group'
+        };
+      }
+
+      state.uiSettings = {
+        ...state.uiSettings,
+        ...normalizedSettings
       };
-    }
-    
-    this._state.uiSettings = {
-      ...this._state.uiSettings,
-      ...settings
-    };
-    
-    await this.save();
-    if (this.onChangeCallback) {
-      this.onChangeCallback();
-    }
+    });
+  }
+
+  async addSshHost(host: SshHost): Promise<void> {
+    await this.mutate(state => {
+      state.sshHosts.push(validateSshHost(host, state.sshHosts));
+    });
+  }
+
+  async updateSshHost(host: SshHost): Promise<void> {
+    await this.mutate(state => {
+      const index = state.sshHosts.findIndex(candidate => candidate.id === host.id);
+      if (index < 0) {
+        throw new Error(`SSH Host ${host.id} was not found`);
+      }
+      state.sshHosts[index] = validateSshHost(host, state.sshHosts, state.sshHosts[index].id);
+    });
+  }
+
+  async deleteSshHost(id: string): Promise<void> {
+    await this.mutate(state => {
+      const index = state.sshHosts.findIndex(host => host.id === id);
+      if (index < 0) {
+        throw new Error(`SSH Host ${id} was not found`);
+      }
+      const linked = state.projects.filter(project => project.sshHostId === id);
+      if (linked.length > 0) {
+        throw new Error(`SSH Host ${id} is used by projects: ${linked.map(project => project.name).join(', ')}`);
+      }
+      state.sshHosts.splice(index, 1);
+    });
+  }
+
+  async migrateSshHostProjects(sourceId: string, targetId: string, projectIds?: string[]): Promise<void> {
+    await this.mutate(state => {
+      if (sourceId === targetId) {
+        throw new Error('Source and target SSH Hosts must be different');
+      }
+      if (!state.sshHosts.some(host => host.id === sourceId)) {
+        throw new Error(`Source SSH Host ${sourceId} was not found`);
+      }
+      if (!state.sshHosts.some(host => host.id === targetId)) {
+        throw new Error(`Target SSH Host ${targetId} was not found`);
+      }
+
+      const selectedIds = projectIds ? new Set(projectIds) : undefined;
+      if (selectedIds) {
+        for (const projectId of selectedIds) {
+          const project = state.projects.find(candidate => candidate.id === projectId);
+          if (!project) {
+            throw new Error(`Project ${projectId} was not found`);
+          }
+          if (project.sshHostId !== sourceId) {
+            throw new Error(`Project ${projectId} does not belong to source SSH Host ${sourceId}`);
+          }
+        }
+      }
+
+      for (const project of state.projects) {
+        if (project.sshHostId === sourceId && (!selectedIds || (project.id && selectedIds.has(project.id)))) {
+          project.sshHostId = targetId;
+        }
+      }
+    });
+  }
+
+  resolveSshProject(project: ProjectItem): ReturnType<typeof resolveManagedSshProject> {
+    return resolveManagedSshProject(project, this._state.sshHosts);
   }
 
   async importFromFile(src: vscode.Uri) {
@@ -308,6 +468,9 @@ export class ConfigStore {
     
     // 支持多种格式
     let projects: any[] = [];
+    const preserveSchemaV2 = incoming.schemaVersion === 2
+      && Array.isArray(incoming.sshHosts)
+      && Array.isArray(incoming.projects);
     
     if (incoming.projects && Array.isArray(incoming.projects)) {
       // 标准格式: { projects: [...] }
@@ -356,11 +519,13 @@ export class ConfigStore {
         throw new Error(`Invalid project at index ${i}: invalid type "${project.type}"`);
       }
       
-      // Ensure required fields exist
-      project.id = project.id || genId();
-      project.color = project.color || '#3b82f6';
-      project.tags = project.tags || [];
-      project.description = project.description || '';
+      // Legacy imports keep the historical defaults; schema v2 round-trips unchanged.
+      if (!preserveSchemaV2) {
+        project.id = project.id || genId();
+        project.color = project.color || '#3b82f6';
+        project.tags = project.tags || [];
+        project.description = project.description || '';
+      }
       
       // Validate and clean icon data
       if (project.icon && typeof project.icon === 'string') {
@@ -381,28 +546,33 @@ export class ConfigStore {
           console.warn(`Invalid icon data for project ${project.name}, clearing icon`);
           project.icon = '';
         }
-      } else {
+      } else if (!preserveSchemaV2) {
         project.icon = '';
       }
     }
     
     // Create backup before importing
     await this.createBackup();
-    
-    this._state = { projects: projects as ProjectItem[] };
-    await this.save();
-    if (this.onChangeCallback) {
-      this.onChangeCallback();
-    }
+
+    const stateToImport = incoming.projects && Array.isArray(incoming.projects)
+      ? {
+          schemaVersion: incoming.schemaVersion,
+          sshHosts: incoming.sshHosts,
+          projects: projects as ProjectItem[],
+          uiSettings: incoming.uiSettings
+        }
+      : { projects: projects as ProjectItem[] };
+    await this.applyIncomingState(stateToImport, { persist: 'always', notify: true });
   }
 
   async exportToFile(dest: vscode.Uri) {
+    const normalized = this.normalizeIncomingState(cloneState(this._state));
     const exportData = {
-      ...this._state,
+      ...normalized.state,
       metadata: {
         version: '1.0.0',
         exportDate: new Date().toISOString(),
-        projectCount: this._state.projects.length
+        projectCount: normalized.state.projects.length
       }
     };
     const data = Buffer.from(JSON.stringify(exportData, null, 2), 'utf8');
@@ -464,4 +634,8 @@ export class ConfigStore {
 
 function genId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function cloneState(state: State): State {
+  return JSON.parse(JSON.stringify(state)) as State;
 }
