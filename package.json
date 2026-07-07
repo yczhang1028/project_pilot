@@ -508,6 +508,7 @@
     "test:sshPath": "npm run build:ext && node test/sshPath.test.js",
     "test:sshHosts": "npm run build:ext && node test/sshHosts.test.js",
     "test:store": "npm run build:ext && node test/store.test.js",
+    "test:sshResolve": "npm run build:ext && node test/sshResolve.test.js",
     "watch": "npm run watch:ext",
     "watch:ext": "tsc -w -p .",
     "lint": "echo 'No lint configured'",
