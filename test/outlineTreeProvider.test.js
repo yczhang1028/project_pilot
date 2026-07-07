@@ -172,7 +172,7 @@ try {
   const usedHostItem = provider.getTreeItem(usedHostNode);
   assert.match(usedHostItem.contextValue, /(?:^|,)outline-host(?:,|$)/);
   assert.match(usedHostItem.contextValue, /(?:^|,)host-used(?:,|$)/);
-  assert.match(usedHostItem.contextValue, /(?:^|,)host-id:host-build(?:,|$)/);
+  assert.match(usedHostItem.contextValue, /(?:^|,)host:host-build(?:,|$)/);
   assert.strictEqual(usedHostItem.collapsibleState, vscodeMock.TreeItemCollapsibleState.Expanded);
   assert.strictEqual(usedHostItem.command, undefined, 'Host nodes never open projects');
 
@@ -187,7 +187,7 @@ try {
   const unusedHostItem = provider.getTreeItem(unusedHostNode);
   assert.match(unusedHostItem.contextValue, /(?:^|,)outline-host(?:,|$)/);
   assert.match(unusedHostItem.contextValue, /(?:^|,)host-unused(?:,|$)/);
-  assert.match(unusedHostItem.contextValue, /(?:^|,)host-id:host-alpha(?:,|$)/);
+  assert.match(unusedHostItem.contextValue, /(?:^|,)host:host-alpha(?:,|$)/);
   assert.doesNotMatch(unusedHostItem.contextValue, /(?:^|,)host-used(?:,|$)/);
   assert.strictEqual(unusedHostItem.collapsibleState, vscodeMock.TreeItemCollapsibleState.None);
   assert.strictEqual(unusedHostItem.command, undefined);
@@ -215,6 +215,19 @@ try {
 
   assert.deepStrictEqual(projects, originalProjects, 'provider does not mutate project state');
   assert.deepStrictEqual(hosts, originalHosts, 'provider does not mutate Host state');
+
+  const manifest = require('../package.json');
+  const contextMenus = manifest.contributes.menus['view/item/context'];
+  const migrateMenu = contextMenus.find(menu => menu.command === 'projectPilot.migrateSshHostProjects');
+  const deleteMenu = contextMenus.find(menu => menu.command === 'projectPilot.deleteSshHostFromOutline');
+  assert.strictEqual(
+    migrateMenu.when,
+    'view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-used/'
+  );
+  assert.strictEqual(
+    deleteMenu.when,
+    'view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-unused/'
+  );
 
   console.log('outlineTreeProvider tests passed');
 } finally {

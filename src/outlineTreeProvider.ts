@@ -97,7 +97,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
       item.contextValue = [
         'outline-host',
         element.children?.length ? 'host-used' : 'host-unused',
-        `host-id:${element.hostId}`
+        `host:${element.hostId}`
       ].join(',');
       return item;
     }

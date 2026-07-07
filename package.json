@@ -358,12 +358,12 @@
           "group": "remote@2"
         },
         {
-          "when": "view == projectPilot.outline && viewItem =~ /host-used/",
+          "when": "view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-used/",
           "command": "projectPilot.migrateSshHostProjects",
           "group": "organization@1"
         },
         {
-          "when": "view == projectPilot.outline && viewItem =~ /host-unused/",
+          "when": "view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-unused/",
           "command": "projectPilot.deleteSshHostFromOutline",
           "group": "danger@1"
         }
