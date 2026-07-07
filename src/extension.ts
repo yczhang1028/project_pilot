@@ -4,6 +4,7 @@ import * as path from 'path';
 import { ManagerViewProvider } from './managerViewProvider';
 import { OutlineMode, OutlineTreeProvider } from './outlineTreeProvider';
 import { getCurrentRemoteStatus } from './remoteContext';
+import { handleSshHostMessage } from './sshHostMessages';
 import { ConfigStore, ProjectItem, ProjectType } from './store';
 import {
   detectProjectTypeFromPath,
@@ -1067,6 +1068,7 @@ function getWebviewState(store: ConfigStore) {
   const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
   return {
     ...store.state,
+    migrationWarnings: store.migrationWarnings,
     config: { autoOpenFullscreen }
   };
 }
@@ -1078,6 +1080,12 @@ async function handleWebviewMessage(
   webview: vscode.Webview, 
   store: ConfigStore
 ) {
+  const hostResult = await handleSshHostMessage(msg, store);
+  if (hostResult) {
+    await webview.postMessage(hostResult);
+    return;
+  }
+
   if (msg.type === 'requestState') {
     webview.postMessage({ type: 'state', payload: getWebviewState(store) });
   } else if (msg.type === 'refreshUI') {

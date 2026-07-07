@@ -1,0 +1,270 @@
+const assert = require('assert');
+const { handleSshHostMessage } = require('../out/sshHostMessages');
+
+const host = {
+  id: 'host-1',
+  name: 'Build host',
+  hostname: 'build.example.com',
+  username: 'builder',
+  port: 2222
+};
+
+function createFakeStore(throwFor = {}) {
+  const calls = {
+    add: [],
+    update: [],
+    delete: [],
+    migrate: []
+  };
+
+  const maybeThrow = operation => {
+    if (Object.prototype.hasOwnProperty.call(throwFor, operation)) {
+      throw throwFor[operation];
+    }
+  };
+
+  return {
+    calls,
+    store: {
+      async addSshHost(input) {
+        calls.add.push(input);
+        maybeThrow('add');
+      },
+      async updateSshHost(input) {
+        calls.update.push(input);
+        maybeThrow('update');
+      },
+      async deleteSshHost(id) {
+        calls.delete.push(id);
+        maybeThrow('delete');
+      },
+      async migrateSshHostProjects(sourceId, targetId, projectIds) {
+        calls.migrate.push([sourceId, targetId, projectIds]);
+        maybeThrow('migrate');
+      }
+    }
+  };
+}
+
+function mutationCallCount(calls) {
+  return Object.values(calls).reduce((total, operationCalls) => total + operationCalls.length, 0);
+}
+
+async function testMutationRouting() {
+  const cases = [
+    {
+      message: { type: 'addSshHost', payload: host },
+      operation: 'add',
+      expectedCalls: [host]
+    },
+    {
+      message: { type: 'updateSshHost', payload: host },
+      operation: 'update',
+      expectedCalls: [host]
+    },
+    {
+      message: { type: 'deleteSshHost', payload: { id: 'host-1' } },
+      operation: 'delete',
+      expectedCalls: ['host-1']
+    },
+    {
+      message: {
+        type: 'migrateSshHostProjects',
+        payload: { sourceId: 'host-1', targetId: 'host-2' }
+      },
+      operation: 'migrate',
+      expectedCalls: [['host-1', 'host-2', undefined]]
+    }
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeStore();
+    let probeCalls = 0;
+    const result = await handleSshHostMessage(testCase.message, fake.store, async () => {
+      probeCalls += 1;
+      throw new Error('probe should not run for mutations');
+    });
+
+    assert.deepStrictEqual(result, {
+      type: 'sshHostOperationResult',
+      payload: { success: true, operation: testCase.operation }
+    });
+    assert.deepStrictEqual(fake.calls[testCase.operation], testCase.expectedCalls);
+    assert.strictEqual(mutationCallCount(fake.calls), 1, 'routes a mutation exactly once');
+    assert.strictEqual(probeCalls, 0, 'does not probe while routing mutations');
+  }
+}
+
+async function testSelectedMigrationRouting() {
+  const fake = createFakeStore();
+  const projectIds = ['project-1', 'project-2'];
+  const result = await handleSshHostMessage({
+    type: 'migrateSshHostProjects',
+    payload: { sourceId: 'host-1', targetId: 'host-2', projectIds }
+  }, fake.store);
+
+  assert.deepStrictEqual(result, {
+    type: 'sshHostOperationResult',
+    payload: { success: true, operation: 'migrate' }
+  });
+  assert.deepStrictEqual(fake.calls.migrate, [['host-1', 'host-2', projectIds]]);
+  assert.strictEqual(mutationCallCount(fake.calls), 1);
+}
+
+async function testProbeRouting() {
+  const fake = createFakeStore();
+  const probeResult = {
+    success: true,
+    code: 'ok',
+    message: 'Connected.'
+  };
+  const probeCalls = [];
+  const result = await handleSshHostMessage(
+    { type: 'testSshHost', payload: host },
+    fake.store,
+    async input => {
+      probeCalls.push(input);
+      return probeResult;
+    }
+  );
+
+  assert.deepStrictEqual(result, {
+    type: 'sshHostTestResult',
+    payload: probeResult
+  });
+  assert.deepStrictEqual(probeCalls, [host]);
+  assert.strictEqual(mutationCallCount(fake.calls), 0);
+}
+
+async function testUnknownAndInvalidEnvelopesAreIgnored() {
+  const invalidEnvelopes = [undefined, null, 'addSshHost', 42, [], {}, { type: 42 }];
+  const fake = createFakeStore();
+  let probeCalls = 0;
+  const probe = async () => {
+    probeCalls += 1;
+    return { success: true, code: 'ok', message: 'Connected.' };
+  };
+
+  for (const message of invalidEnvelopes) {
+    assert.strictEqual(await handleSshHostMessage(message, fake.store, probe), undefined);
+  }
+  assert.strictEqual(
+    await handleSshHostMessage({ type: 'unrelatedMessage', payload: host }, fake.store, probe),
+    undefined
+  );
+  assert.strictEqual(mutationCallCount(fake.calls), 0);
+  assert.strictEqual(probeCalls, 0);
+}
+
+async function testInvalidRecognizedPayloadsFailSafely() {
+  const cases = [
+    {
+      message: { type: 'addSshHost', payload: null },
+      resultType: 'sshHostOperationResult',
+      payload: { success: false, operation: 'add', message: 'Invalid payload for addSshHost' }
+    },
+    {
+      message: { type: 'updateSshHost', payload: { id: 'host-1', name: 'Missing hostname' } },
+      resultType: 'sshHostOperationResult',
+      payload: { success: false, operation: 'update', message: 'Invalid payload for updateSshHost' }
+    },
+    {
+      message: { type: 'deleteSshHost', payload: { id: 17 } },
+      resultType: 'sshHostOperationResult',
+      payload: { success: false, operation: 'delete', message: 'Invalid payload for deleteSshHost' }
+    },
+    {
+      message: {
+        type: 'migrateSshHostProjects',
+        payload: { sourceId: 'host-1', targetId: 'host-2', projectIds: ['project-1', 2] }
+      },
+      resultType: 'sshHostOperationResult',
+      payload: { success: false, operation: 'migrate', message: 'Invalid payload for migrateSshHostProjects' }
+    },
+    {
+      message: { type: 'testSshHost', payload: { ...host, port: '2222' } },
+      resultType: 'sshHostTestResult',
+      payload: { success: false, code: 'remote-command', message: 'Invalid payload for testSshHost' }
+    }
+  ];
+
+  for (const testCase of cases) {
+    const fake = createFakeStore();
+    let probeCalls = 0;
+    const result = await handleSshHostMessage(testCase.message, fake.store, async () => {
+      probeCalls += 1;
+      return { success: true, code: 'ok', message: 'Connected.' };
+    });
+
+    assert.deepStrictEqual(result, {
+      type: testCase.resultType,
+      payload: testCase.payload
+    });
+    assert.strictEqual(mutationCallCount(fake.calls), 0, 'invalid payload does not mutate');
+    assert.strictEqual(probeCalls, 0, 'invalid payload does not probe');
+  }
+}
+
+async function testMutationErrorsFailSafely() {
+  const errorFake = createFakeStore({ add: new Error('duplicate Host') });
+  const errorResult = await handleSshHostMessage(
+    { type: 'addSshHost', payload: host },
+    errorFake.store
+  );
+  assert.deepStrictEqual(errorResult, {
+    type: 'sshHostOperationResult',
+    payload: { success: false, operation: 'add', message: 'duplicate Host' }
+  });
+  assert.strictEqual(mutationCallCount(errorFake.calls), 1);
+
+  const nonErrorFake = createFakeStore({ delete: 'delete rejected' });
+  const nonErrorResult = await handleSshHostMessage(
+    { type: 'deleteSshHost', payload: { id: 'host-1' } },
+    nonErrorFake.store
+  );
+  assert.deepStrictEqual(nonErrorResult, {
+    type: 'sshHostOperationResult',
+    payload: { success: false, operation: 'delete', message: 'delete rejected' }
+  });
+  assert.strictEqual(mutationCallCount(nonErrorFake.calls), 1);
+}
+
+async function testProbeErrorsFailSafely() {
+  const fake = createFakeStore();
+  let probeCalls = 0;
+  const result = await handleSshHostMessage(
+    { type: 'testSshHost', payload: host },
+    fake.store,
+    async () => {
+      probeCalls += 1;
+      throw new Error('ssh executable failed');
+    }
+  );
+
+  assert.deepStrictEqual(result, {
+    type: 'sshHostTestResult',
+    payload: {
+      success: false,
+      code: 'remote-command',
+      message: 'ssh executable failed'
+    }
+  });
+  assert.strictEqual(probeCalls, 1);
+  assert.strictEqual(mutationCallCount(fake.calls), 0);
+}
+
+async function run() {
+  await testMutationRouting();
+  await testSelectedMigrationRouting();
+  await testProbeRouting();
+  await testUnknownAndInvalidEnvelopesAreIgnored();
+  await testInvalidRecognizedPayloadsFailSafely();
+  await testMutationErrorsFailSafely();
+  await testProbeErrorsFailSafely();
+  console.log('sshHostMessages tests passed');
+}
+
+run().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

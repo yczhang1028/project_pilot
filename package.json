@@ -507,6 +507,7 @@
     "build:webview": "cd webview-ui && npm install && npm run build",
     "test:sshPath": "npm run build:ext && node test/sshPath.test.js",
     "test:sshHosts": "npm run build:ext && node test/sshHosts.test.js",
+    "test:sshHostMessages": "npm run build:ext && node test/sshHostMessages.test.js",
     "test:store": "npm run build:ext && node test/store.test.js",
     "test:sshResolve": "npm run build:ext && node test/sshResolve.test.js",
     "watch": "npm run watch:ext",
