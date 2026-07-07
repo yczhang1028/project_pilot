@@ -22,13 +22,19 @@ import {
   normalizeSelectedProjectUri,
   type NormalizedProjectSelection
 } from './projectPath';
-import { resolveSshTarget, testSshHostConnection } from './sshResolve';
+import { testSshHostConnection } from './sshResolve';
 import {
   buildRemoteSshUri,
   extractHostnameFromSshPath,
   getSuggestedNameFromSshPath,
   parseRawSshPath
 } from './sshPath';
+import {
+  materializeRuntimeProjects,
+  resolveSshProjectRuntime,
+  resolveSshTargetPayload,
+  testSshProjectConnection
+} from './sshProjectRuntime';
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Project Pilot: Extension activating...');
@@ -140,7 +146,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('projectPilot.openProject', async (item?: ProjectItem) => {
       const target = item ?? (await outlineProvider.pickProject());
       if (!target) { return; }
-      openProject(target);
+      openProject(getCurrentProject(target));
     }),
     vscode.commands.registerCommand('projectPilot.addLocalProject', async () => {
       const uri = await vscode.window.showOpenDialog({ 
@@ -460,7 +466,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.commands.registerCommand('projectPilot.testSshConnection', async () => {
-      const sshProjects = store.state.projects.filter(p => p.type === 'ssh');
+      const sshProjects = store.state.projects.filter(p => p.type === 'ssh' || p.type === 'ssh-workspace');
       if (sshProjects.length === 0) {
         vscode.window.showInformationMessage('No SSH projects found');
         return;
@@ -468,7 +474,7 @@ export async function activate(context: vscode.ExtensionContext) {
       
       const items = sshProjects.map(p => ({
         label: p.name,
-        description: p.path,
+        description: getRuntimeDisplayPath(p),
         project: p
       }));
       
@@ -601,8 +607,16 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!item?.project?.path) {
         return;
       }
-      await vscode.env.clipboard.writeText(item.project.path);
-      vscode.window.showInformationMessage(`Copied path for "${item.project.name}"`);
+      try {
+        const project = getCurrentProject(item.project);
+        const copyPath = (project.type === 'ssh' || project.type === 'ssh-workspace')
+          ? resolveSshProjectRuntime(project, store.state.sshHosts).compatibilityPath
+          : project.path;
+        await vscode.env.clipboard.writeText(copyPath);
+        vscode.window.showInformationMessage(`Copied path for "${project.name}"`);
+      } catch (error) {
+        vscode.window.showErrorMessage(error instanceof Error ? error.message : 'Could not resolve project path');
+      }
     }),
     vscode.commands.registerCommand('projectPilot.copyProjectName', async (item?: any) => {
       if (!item?.project?.name) {
@@ -953,14 +967,29 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  function getCurrentProject(item: ProjectItem): ProjectItem {
+    if (!item.id) {
+      return item;
+    }
+    return store.state.projects.find(candidate => candidate.id === item.id) ?? item;
+  }
+
+  function getRuntimeDisplayPath(project: ProjectItem): string {
+    if (project.type !== 'ssh' && project.type !== 'ssh-workspace') {
+      return project.path;
+    }
+    try {
+      return resolveSshProjectRuntime(project, store.state.sshHosts).displayPath;
+    } catch (error) {
+      return error instanceof Error ? error.message : project.path;
+    }
+  }
+
   function openSshProject(item: ProjectItem) {
     try {
       // SSH 项目通过本地存储的连接信息打开远程项目
       // 项目配置始终保存在本地，不需要在远程服务器上安装扩展
-      const remoteUri = buildRemoteSshUri(item.path);
-      const uri = remoteUri
-        ? vscode.Uri.parse(remoteUri)
-        : vscode.Uri.parse(`vscode-remote://ssh-remote+${encodeURIComponent(item.path)}`);
+      const uri = vscode.Uri.parse(resolveSshProjectRuntime(item, store.state.sshHosts).remoteUri);
       
       // 使用 VSCode 的 Remote-SSH 功能打开远程项目
       vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
@@ -982,10 +1011,7 @@ export async function activate(context: vscode.ExtensionContext) {
   function openSshWorkspace(item: ProjectItem) {
     try {
       // SSH workspace 通过 Remote-SSH 打开远程 .code-workspace 文件
-      const remoteUri = buildRemoteSshUri(item.path);
-      const uri = remoteUri
-        ? vscode.Uri.parse(remoteUri)
-        : vscode.Uri.parse(`vscode-remote://ssh-remote+${encodeURIComponent(item.path)}`);
+      const uri = vscode.Uri.parse(resolveSshProjectRuntime(item, store.state.sshHosts).remoteUri);
       
       // 使用 VSCode 的 Remote-SSH 功能打开远程 workspace 文件
       vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
@@ -1005,50 +1031,25 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   async function testSshConnection(project: ProjectItem) {
+    project = getCurrentProject(project);
     const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
     statusBarItem.text = `$(sync~spin) Testing SSH connection to ${project.name}...`;
     statusBarItem.show();
     
     try {
-      // Try to parse the SSH connection
-      const remoteUri = buildRemoteSshUri(project.path);
-      if (!remoteUri) {
-        throw new Error('Invalid SSH connection string format');
-      }
-      const uri = vscode.Uri.parse(remoteUri);
-      
-      // Try to get the remote authority
-      const authority = uri.authority;
-      if (!authority) {
-        throw new Error('Could not extract remote authority from URI');
-      }
-      
-      // Check if Remote-SSH extension is installed
-      const remoteSSHExtension = vscode.extensions.getExtension('ms-vscode-remote.remote-ssh');
-      if (!remoteSSHExtension) {
+      const result = await testSshProjectConnection(project, store.state.sshHosts);
+      if (!result.success) {
         statusBarItem.hide();
-        vscode.window.showWarningMessage(
-          'Remote-SSH extension is not installed. Please install it to use SSH projects.',
-          'Install Extension'
-        ).then(choice => {
-          if (choice === 'Install Extension') {
-            vscode.commands.executeCommand('workbench.extensions.installExtension', 'ms-vscode-remote.remote-ssh');
-          }
-        });
-        return;
+        throw new Error(result.message);
       }
-      
+
       statusBarItem.text = `$(check) SSH connection test completed for ${project.name}`;
       setTimeout(() => statusBarItem.hide(), 3000);
-      
       const choice = await vscode.window.showInformationMessage(
-        `SSH connection string appears valid for "${project.name}". Would you like to test by opening the project?`,
+        `SSH connection succeeded for "${project.name}".`,
         'Open Project', 'Cancel'
       );
-      
-      if (choice === 'Open Project') {
-        openSshProject(project);
-      }
+      if (choice === 'Open Project') openProject(project);
       
     } catch (error) {
       statusBarItem.hide();
@@ -1207,7 +1208,20 @@ async function getTagsForSelectedProject(
   return getDefaultTagsForSelection(selection);
 }
 
-function getBrowseDefaultUri(currentPath?: string): vscode.Uri | undefined {
+function getBrowseDefaultUri(
+  payload: { currentPath?: string; project?: ProjectItem } | undefined,
+  store: ConfigStore
+): vscode.Uri | undefined {
+  const project = payload?.project;
+  if (project && (project.type === 'ssh' || project.type === 'ssh-workspace')) {
+    try {
+      return vscode.Uri.parse(resolveSshProjectRuntime(project, store.state.sshHosts).remoteUri);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const currentPath = payload?.currentPath;
   if (!currentPath?.trim()) {
     return undefined;
   }
@@ -1304,6 +1318,7 @@ function getWebviewState(store: ConfigStore) {
   const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
   return {
     ...store.state,
+    projects: materializeRuntimeProjects(store.state.projects, store.state.sshHosts),
     migrationWarnings: store.migrationWarnings,
     config: { autoOpenFullscreen }
   };
@@ -1368,7 +1383,7 @@ async function handleWebviewMessage(
       canSelectFiles: false,
       canSelectMany: false,
       title: 'Select Project Folder',
-      defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
+      defaultUri: getBrowseDefaultUri(msg.payload, store)
     });
     if (result && result[0]) {
       const selection = normalizeSelectedProjectUri(result[0], 'folder');
@@ -1390,7 +1405,7 @@ async function handleWebviewMessage(
       canSelectMany: false,
       title: 'Select Workspace File',
       filters: { 'Workspace Files': ['code-workspace'] },
-      defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
+      defaultUri: getBrowseDefaultUri(msg.payload, store)
     });
     if (result && result[0]) {
       const selection = normalizeSelectedProjectUri(result[0], 'workspace');
@@ -1427,7 +1442,7 @@ async function handleWebviewMessage(
       canSelectMany: false,
       title: isWorkspace ? 'Select Remote Workspace File' : 'Select Remote Folder',
       filters: isWorkspace ? { 'Workspace Files': ['code-workspace'] } : undefined,
-      defaultUri: getBrowseDefaultUri(msg.payload?.currentPath)
+      defaultUri: getBrowseDefaultUri(msg.payload, store)
     });
     
     if (result && result[0]) {
@@ -1448,10 +1463,10 @@ async function handleWebviewMessage(
     const remoteInfo = await getCurrentRemoteStatus();
     webview.postMessage({ type: 'remoteStatus', payload: remoteInfo });
   } else if (msg.type === 'testConnection') {
-    const result = await testSshConnectionFormat(msg.payload);
+    const result = await testSshProjectConnection(msg.payload, store.state.sshHosts);
     webview.postMessage({ type: 'connectionTestResult', payload: result });
   } else if (msg.type === 'resolveSshTarget') {
-    const result = await resolveSshTarget(msg.payload.path);
+    const result = await resolveSshTargetPayload(msg.payload, store.state.sshHosts);
     webview.postMessage({
       type: 'sshTargetResolved',
       payload: {
@@ -1459,32 +1474,5 @@ async function handleWebviewMessage(
         requestId: msg.payload.requestId
       }
     });
-  }
-}
-
-async function testSshConnectionFormat(payload: { path: string; name: string; type?: string }): Promise<{ success: boolean; message: string }> {
-  if (!payload.path.trim()) {
-    return { success: false, message: 'SSH path cannot be empty' };
-  }
-
-  const isSshWorkspace = payload.type === 'ssh-workspace' || payload.path.endsWith('.code-workspace');
-
-  if (payload.path.startsWith('vscode-remote://')) {
-    if (isSshWorkspace && !payload.path.endsWith('.code-workspace')) {
-      return { success: false, message: 'SSH workspace path should end with .code-workspace' };
-    }
-    return { success: true, message: 'VSCode remote URI format is valid' };
-  } else {
-    const parsed = parseRawSshPath(payload.path);
-    if (!parsed) {
-      return { success: false, message: 'Invalid SSH format. Use: user@hostname:/path, hostname:/path, user@hostname:C:/path, or hostname:C:/path' };
-    }
-    if (!parsed.remotePath || parsed.remotePath.trim() === '') {
-      return { success: false, message: 'Invalid format: missing remote path after :' };
-    }
-    if (isSshWorkspace && !parsed.remotePath.endsWith('.code-workspace')) {
-      return { success: false, message: 'SSH workspace path should end with .code-workspace' };
-    }
-    return { success: true, message: 'SSH connection format is valid' };
   }
 }

@@ -2077,10 +2077,14 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
   useEffect(() => {
     const trimmedPath = editedProject.path.trim();
     const detectedType = pathAnalysis?.suggestedType || editedProject.type;
-    const canResolve =
+    const canResolveManaged = usesManagedSshFields
+      && !!editedProject.sshHostId
+      && !!editedProject.remotePath?.trim();
+    const canResolve = canResolveManaged || (
       !!trimmedPath &&
       isSshProjectType(detectedType) &&
-      (trimmedPath.startsWith('vscode-remote://ssh-remote+') || !!parseRawSshPath(trimmedPath));
+      (trimmedPath.startsWith('vscode-remote://ssh-remote+') || !!parseRawSshPath(trimmedPath))
+    );
 
     if (!canResolve) {
       setIsResolvingSsh(false);
@@ -2097,13 +2101,21 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
         type: 'resolveSshTarget',
         payload: {
           path: trimmedPath,
+          project: { ...editedProject },
           requestId
         }
       });
     }, 450);
 
     return () => window.clearTimeout(timer);
-  }, [editedProject.path, editedProject.type, pathAnalysis?.suggestedType]);
+  }, [
+    editedProject.path,
+    editedProject.remotePath,
+    editedProject.sshHostId,
+    editedProject.type,
+    pathAnalysis?.suggestedType,
+    usesManagedSshFields
+  ]);
 
   // 监听连接测试结果和远程状态
   useEffect(() => {
@@ -2175,6 +2187,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
       setSshResolution(result.success ? result : null);
 
       if (
+        !usesManagedSshFields &&
         result.success &&
         result.canonicalPath &&
         result.canonicalPath !== result.requestedPath &&
@@ -2201,7 +2214,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
       window.removeEventListener('remoteStatus', handleRemoteStatus);
       window.removeEventListener('sshTargetResolved', handleSshTargetResolved);
     };
-  }, [applySelectedPath, tagsInput]);
+  }, [applySelectedPath, tagsInput, usesManagedSshFields]);
 
   // 监听ESC键关闭Modal
   useEffect(() => {
@@ -2294,7 +2307,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
   };
 
   const testSshConnection = async () => {
-    if ((editedProject.type !== 'ssh' && editedProject.type !== 'ssh-workspace') || !editedProject.path.trim()) {
+    if (editedProject.type !== 'ssh' && editedProject.type !== 'ssh-workspace') {
       return;
     }
 
@@ -2308,11 +2321,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
     // 发送测试连接请求到后端
     vscode.postMessage({ 
       type: 'testConnection', 
-      payload: { 
-        path: editedProject.path,
-        name: editedProject.name,
-        type: editedProject.type
-      } 
+      payload: { ...editedProject }
     });
   };
 
@@ -2496,7 +2505,9 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
                       ['--button-border' as string]: isTestingConnection ? '#f59e0b' : connectionTestResult === 'success' ? '#10b981' : connectionTestResult === 'error' ? '#ef4444' : toAlpha(theme.inputBorder, 0.62)
                     }}
                     onClick={testSshConnection}
-                    disabled={isTestingConnection || !editedProject.path.trim()}
+                    disabled={isTestingConnection || (usesManagedSshFields
+                      ? !editedProject.sshHostId || !editedProject.remotePath?.trim()
+                      : !editedProject.path.trim())}
                     title="Test SSH connection"
                   >
                     {isTestingConnection ? '⏳' : connectionTestResult === 'success' ? '✅' : connectionTestResult === 'error' ? '❌' : '🔗'}
@@ -2516,7 +2527,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
                       if (remoteStatus?.isRemote) {
                         vscode.postMessage({ 
                           type: editedProject.type === 'ssh-workspace' ? 'browseSshWorkspace' : 'browseSshFolder',
-                          payload: { currentPath: editedProject.path }
+                          payload: { currentPath: editedProject.path, project: { ...editedProject } }
                         });
                       } else {
                         setTestMessage('Connect to an SSH remote first to browse remote files');

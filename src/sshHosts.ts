@@ -145,7 +145,11 @@ function isCompleteManagedSshProject(project: SshProjectItem): project is SshPro
 
 function readablePath(host: SshHost, remotePath: string, includePort: boolean): string {
   const username = normalizedOptional(host.username);
-  const target = `${username ? `${username}@` : ''}${host.hostname.trim()}`;
+  const hostname = host.hostname.trim();
+  const displayHostname = hostname.includes(':') && !hostname.startsWith('[')
+    ? `[${hostname}]`
+    : hostname;
+  const target = `${username ? `${username}@` : ''}${displayHostname}`;
   return `${target}${includePort && host.port !== undefined ? `:${host.port}` : ''}:${remotePath}`;
 }
 

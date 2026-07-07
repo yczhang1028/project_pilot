@@ -289,6 +289,16 @@ assert.strictEqual(
   buildRemoteSshUriFromTarget(linuxHost, '/home/dev/repo')
 );
 
+const changedLinuxHost = { ...linuxHost, hostname: '10.20.30.40' };
+const changedLinuxResolved = resolveManagedSshProject(linuxProject, [changedLinuxHost]);
+assert.strictEqual(changedLinuxResolved.displayPath, 'dev@10.20.30.40:/home/dev/repo');
+assert.strictEqual(changedLinuxResolved.compatibilityPath, 'dev@10.20.30.40:/home/dev/repo');
+assert.strictEqual(
+  changedLinuxResolved.remoteUri,
+  buildRemoteSshUriFromTarget(changedLinuxHost, '/home/dev/repo')
+);
+assert.doesNotMatch(changedLinuxResolved.remoteUri, /linux\.example\.com/);
+
 const windowsHost = {
   id: 'windows',
   name: 'Windows',
@@ -310,6 +320,13 @@ assert.match(windowsResolved.displayPath, /administrator@windows\.example\.com:2
 assert.strictEqual(windowsResolved.compatibilityPath, windowsResolved.remoteUri);
 assert.match(windowsResolved.compatibilityPath, /^vscode-remote:\/\/ssh-remote\+/);
 assert.doesNotMatch(windowsResolved.compatibilityPath, /windows\.example\.com:2222:C:\//);
+
+const changedWindowsHost = { ...windowsHost, hostname: '10.50.60.70' };
+const changedWindowsResolved = resolveManagedSshProject(windowsProject, [changedWindowsHost]);
+assert.strictEqual(changedWindowsResolved.remotePath, 'C:/work/main.code-workspace');
+assert.match(changedWindowsResolved.displayPath, /administrator@10\.50\.60\.70:2222:C:\/work\/main\.code-workspace/);
+assert.strictEqual(changedWindowsResolved.compatibilityPath, changedWindowsResolved.remoteUri);
+assert.notStrictEqual(changedWindowsResolved.remoteUri, windowsResolved.remoteUri);
 
 const ipv6Host = {
   id: 'ipv6',

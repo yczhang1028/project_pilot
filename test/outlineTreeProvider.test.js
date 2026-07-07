@@ -174,6 +174,14 @@ try {
   assert.strictEqual(usedHostItem.collapsibleState, vscodeMock.TreeItemCollapsibleState.Expanded);
   assert.strictEqual(usedHostItem.command, undefined, 'Host nodes never open projects');
 
+  const managedProjectItem = provider.getTreeItem(usedHostNode.children[0]);
+  assert.match(managedProjectItem.tooltip, /builder@build\.example\.com:2200:\/srv\/managed/);
+  hosts[0].hostname = '10.20.30.40';
+  const managedProjectAfterHostChange = provider.getTreeItem(usedHostNode.children[0]);
+  assert.match(managedProjectAfterHostChange.tooltip, /builder@10\.20\.30\.40:2200:\/srv\/managed/);
+  assert.doesNotMatch(managedProjectAfterHostChange.tooltip, /build\.example\.com/);
+  hosts[0].hostname = 'build.example.com';
+
   assert.strictEqual(unusedHostNode.type, 'host');
   assert.strictEqual(unusedHostNode.hostId, 'host-alpha');
   assert.strictEqual(unusedHostNode.description, '0 projects');

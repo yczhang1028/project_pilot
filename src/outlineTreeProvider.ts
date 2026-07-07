@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { sanitizeDisplayText } from './outlineHostActions';
 import { extractHostnameFromSshPath } from './sshPath';
 import { buildHostBuckets, type SshHost } from './sshHosts';
+import { resolveSshProjectRuntime } from './sshProjectRuntime';
 import { ConfigStore, ProjectItem } from './store';
 
 export type OutlineMode = 'group' | 'host' | 'type' | 'flat';
@@ -309,7 +310,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   }
 
   private getProjectDescription(project: ProjectItem): string {
-    const shortPath = shortenPath(project.path);
+    const shortPath = shortenPath(this.getProjectDisplayPath(project));
     let description: string;
 
     switch (this.outlineMode) {
@@ -331,7 +332,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   }
 
   private getQuickPickDetail(project: ProjectItem): string {
-    const detailParts = [this.getProjectTypeLabel(project.type), sanitizeDisplayText(project.path)];
+    const detailParts = [this.getProjectTypeLabel(project.type), sanitizeDisplayText(this.getProjectDisplayPath(project))];
     if (project.group) {
       detailParts.unshift(sanitizeDisplayText(project.group));
     }
@@ -344,7 +345,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     if (project.description) lines.push(sanitizeDisplayText(project.description));
     lines.push('');
     if (project.group) lines.push(`Group: ${sanitizeDisplayText(project.group)}`);
-    lines.push(`Path: ${sanitizeDisplayText(project.path)}`);
+    lines.push(`Path: ${sanitizeDisplayText(this.getProjectDisplayPath(project))}`);
     lines.push(`Type: ${project.type}`);
     if (project.tags && project.tags.length > 0) {
       lines.push(`Tags: ${project.tags.map(sanitizeDisplayText).join(', ')}`);
@@ -356,6 +357,17 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
       lines.push(`Last opened: ${new Date(project.lastAccessed).toLocaleString()}`);
     }
     return lines.join('\n');
+  }
+
+  private getProjectDisplayPath(project: ProjectItem): string {
+    if (project.type !== 'ssh' && project.type !== 'ssh-workspace') {
+      return project.path;
+    }
+    try {
+      return resolveSshProjectRuntime(project, this.store.state.sshHosts).displayPath;
+    } catch (error) {
+      return error instanceof Error ? error.message : project.path;
+    }
   }
 
   private getProjectIcon(project: ProjectItem): vscode.ThemeIcon | vscode.Uri {

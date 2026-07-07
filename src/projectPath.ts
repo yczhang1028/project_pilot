@@ -4,6 +4,7 @@ import type { ProjectItem, ProjectType } from './store';
 import {
   getRawSshPathFromRemoteUri,
   getSuggestedNameFromSshPath,
+  normalizeRemoteSshUserHost,
   normalizeRemoteSshPath,
   parseRawSshPath
 } from './sshPath';
@@ -56,7 +57,7 @@ function getSshHostFromUri(uri: vscode.Uri): string | undefined {
     return undefined;
   }
 
-  return safeDecode(uri.authority.slice(SSH_REMOTE_AUTHORITY_PREFIX.length));
+  return normalizeRemoteSshUserHost(uri.authority.slice(SSH_REMOTE_AUTHORITY_PREFIX.length));
 }
 
 export function normalizeProjectPathForStorage(input: string): string {
@@ -91,6 +92,17 @@ export function detectProjectTypeFromPath(input: string): ProjectType {
 }
 
 export function normalizeProjectItemForStorage(project: ProjectItem): ProjectItem {
+  if (
+    (project.type === 'ssh' || project.type === 'ssh-workspace')
+    && (project.sshHostId !== undefined || project.remotePath !== undefined)
+  ) {
+    return {
+      ...project,
+      name: project.name.trim(),
+      path: project.path.trim()
+    };
+  }
+
   const normalizedPath = normalizeProjectPathForStorage(project.path);
 
   return {
