@@ -73,7 +73,7 @@ export function hostConnectionKey(host: Pick<SshHost, 'hostname' | 'username' | 
 
 export function validateSshHost(
   host: SshHost,
-  existingHosts: SshHost[],
+  existingHosts: readonly SshHost[],
   excludeId?: string
 ): SshHost {
   const username = normalizedOptional(host.username);
@@ -129,9 +129,21 @@ function readablePath(host: SshHost, remotePath: string, includePort: boolean): 
   return `${target}${includePort && host.port !== undefined ? `:${host.port}` : ''}:${remotePath}`;
 }
 
+function canUseReadableRawAuthority(host: SshHost): boolean {
+  if (host.port !== undefined) {
+    return false;
+  }
+
+  const probePath = '/.__project_pilot_raw_probe__';
+  const parsed = parseRawSshPath(readablePath(host, probePath, false));
+  return parsed !== null
+    && parsed.remotePath === probePath
+    && hostConnectionKey(parsed) === hostConnectionKey(host);
+}
+
 export function resolveManagedSshProject(
   project: SshProjectItem,
-  hosts: SshHost[]
+  hosts: readonly SshHost[]
 ): ResolvedManagedSshProject {
   if (!isManagedSshProject(project)) {
     throw new Error(`Project ${project.name} is not a managed SSH project`);
@@ -155,7 +167,7 @@ export function resolveManagedSshProject(
     host,
     remotePath,
     displayPath,
-    compatibilityPath: host.port === undefined
+    compatibilityPath: canUseReadableRawAuthority(host)
       ? readablePath(host, remotePath, false)
       : remoteUri,
     remoteUri
@@ -164,7 +176,7 @@ export function resolveManagedSshProject(
 
 export function materializeManagedProject(
   project: SshProjectItem,
-  hosts: SshHost[]
+  hosts: readonly SshHost[]
 ): SshProjectItem {
   if (!isManagedSshProject(project)) {
     return project;
@@ -303,8 +315,8 @@ export function migrateSshState(input: SshStateLike): {
 }
 
 export function buildHostBuckets(
-  projects: SshProjectItem[],
-  hosts: SshHost[]
+  projects: readonly SshProjectItem[],
+  hosts: readonly SshHost[]
 ): HostBucket[] {
   const sortedHosts = [...hosts].sort((left, right) => {
     const byName = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });

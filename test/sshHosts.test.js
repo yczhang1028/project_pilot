@@ -1,5 +1,10 @@
 const assert = require('assert');
-const { buildRemoteSshUriFromTarget } = require('../out/sshPath');
+const {
+  buildRemoteSshUri,
+  buildRemoteSshUriFromTarget,
+  getRawSshPathFromRemoteUri,
+  parseRawSshPath
+} = require('../out/sshPath');
 const {
   buildHostBuckets,
   hostConnectionKey,
@@ -153,6 +158,33 @@ assert.match(windowsResolved.displayPath, /administrator@windows\.example\.com:2
 assert.strictEqual(windowsResolved.compatibilityPath, windowsResolved.remoteUri);
 assert.match(windowsResolved.compatibilityPath, /^vscode-remote:\/\/ssh-remote\+/);
 assert.doesNotMatch(windowsResolved.compatibilityPath, /windows\.example\.com:2222:C:\//);
+
+const ipv6Host = {
+  id: 'ipv6',
+  name: 'IPv6',
+  hostname: '2001:db8::1',
+  username: 'u'
+};
+const ipv6Resolved = resolveManagedSshProject({
+  id: 'ipv6-project',
+  name: 'IPv6 Project',
+  path: 'stale',
+  type: 'ssh',
+  sshHostId: 'ipv6',
+  remotePath: '/repo'
+}, [ipv6Host]);
+assert.match(ipv6Resolved.compatibilityPath, /^vscode-remote:\/\/ssh-remote\+/);
+assert.notStrictEqual(ipv6Resolved.compatibilityPath, 'u@2001:db8::1:/repo');
+assert.strictEqual(buildRemoteSshUri(ipv6Resolved.compatibilityPath), ipv6Resolved.remoteUri);
+const ipv6RawPath = getRawSshPathFromRemoteUri(ipv6Resolved.compatibilityPath);
+assert.ok(ipv6RawPath);
+assert.deepStrictEqual(
+  (({ hostname, username, remotePath }) => ({ hostname, username, remotePath }))(
+    parseRawSshPath(ipv6RawPath)
+  ),
+  { hostname: '2001:db8::1', username: 'u', remotePath: '/repo' }
+);
+
 assert.throws(
   () => resolveManagedSshProject({ ...linuxProject, sshHostId: 'missing' }, [linuxHost]),
   /SSH Host missing was not found/
