@@ -6,6 +6,7 @@ const {
   encodeRemoteSshAuthority,
   extractHostnameFromSshPath,
   getRawSshPathFromRemoteUri,
+  normalizeRemoteSshAuthority,
   parseRemoteSshAuthority,
   parseRawSshPath
 } = require('../out/sshPath');
@@ -88,18 +89,78 @@ assert.deepStrictEqual(
   },
   'accepts a digit-only string port from structured authorities'
 );
-assert.deepStrictEqual(
-  parseRemoteSshAuthority(Buffer.from(JSON.stringify({
+for (const invalidPort of [0, 70000, 'not-a-port']) {
+  const invalidPortAuthority = Buffer.from(JSON.stringify({
     hostName: '10.7.8.9',
-    port: 70000
-  })).toString('hex')),
+    port: invalidPort
+  })).toString('hex');
+  assert.deepStrictEqual(
+    parseRemoteSshAuthority(invalidPortAuthority),
+    {
+      hostname: '10.7.8.9',
+      username: undefined,
+      port: undefined,
+      structured: true
+    },
+    `ignores invalid structured port ${invalidPort} without rejecting the host`
+  );
+}
+
+for (const invalidPort of [0, 65536, 1.5, NaN]) {
+  assert.throws(
+    () => encodeRemoteSshAuthority({ hostname: '10.7.8.9', port: invalidPort }),
+    /SSH port must be an integer between 1 and 65535/,
+    `rejects invalid explicit port ${invalidPort} during authority encoding`
+  );
+  assert.throws(
+    () => buildRemoteSshUriFromTarget({ hostname: '10.7.8.9', port: invalidPort }, '/repo'),
+    /SSH port must be an integer between 1 and 65535/,
+    `rejects invalid explicit port ${invalidPort} during URI construction`
+  );
+}
+
+const invalidImportedAuthority = Buffer.from(JSON.stringify({
+  hostName: '10.7.8.9',
+  user: 'yichi',
+  port: 70000
+})).toString('hex');
+const invalidImportedUri = `vscode-remote://ssh-remote+${invalidImportedAuthority}/C:/repo`;
+assert.strictEqual(
+  normalizeRemoteSshAuthority(invalidImportedAuthority),
+  invalidImportedAuthority,
+  'preserves an imported structured authority whose explicit port is invalid'
+);
+assert.strictEqual(
+  getRawSshPathFromRemoteUri(invalidImportedUri),
+  `${invalidImportedAuthority}:C:/repo`,
+  'preserves invalid imported port data while converting a URI to a raw SSH path'
+);
+assert.strictEqual(
+  buildRemoteSshUri(`${invalidImportedAuthority}:C:/repo`),
+  invalidImportedUri,
+  'round-trips an imported invalid-port authority without silently selecting the default port'
+);
+
+const invalidImportedHostAuthority = Buffer.from(JSON.stringify({
+  hostName: '10.7.8.9',
+  port: 70000
+})).toString('hex');
+const wrappedInvalidImportedUri = `vscode-remote://ssh-remote+someone@${invalidImportedHostAuthority}/C:/repo`;
+const wrappedInvalidRawPath = `someone@${invalidImportedHostAuthority}:C:/repo`;
+assert.deepStrictEqual(
+  parseRawSshPath(wrappedInvalidRawPath),
   {
+    userHost: `someone@${invalidImportedHostAuthority}`,
+    username: 'someone',
     hostname: '10.7.8.9',
-    username: undefined,
-    port: undefined,
-    structured: true
+    remotePath: 'C:/repo'
   },
-  'ignores an out-of-range structured port without rejecting the host'
+  'parses a preserved outer user without mistaking the structured authority for a hostname'
+);
+assert.strictEqual(
+  buildRemoteSshUri(wrappedInvalidRawPath),
+  wrappedInvalidImportedUri,
+  'round-trips an outer user wrapped around an imported invalid-port authority'
 );
 
 assert.deepStrictEqual(
@@ -138,6 +199,17 @@ assert.strictEqual(
   buildRemoteSshUri(`${encodedAuthorityWithUserAndPort}:C:/repo`),
   uriBuiltFromTarget,
   'round-trips a custom-port raw path back to the same structured Remote-SSH URI'
+);
+
+assert.deepStrictEqual(
+  parseRawSshPath('user@host:2222:/path'),
+  {
+    userHost: 'user@host',
+    username: 'user',
+    hostname: 'host',
+    remotePath: '2222:/path'
+  },
+  'does not interpret ambiguous user@host:2222:/path syntax as a custom-port target'
 );
 
 assert.strictEqual(

@@ -21,6 +21,11 @@ export interface SshTarget {
   port?: number;
 }
 
+interface ParsedSshAuthorityDetails extends SshAuthority {
+  decoded: string;
+  invalidExplicitPort: boolean;
+}
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value);
@@ -91,35 +96,73 @@ function isSafePlainHostname(hostname: string): boolean {
   return /^[a-z0-9._-]+$/.test(hostname);
 }
 
-export function parseRemoteSshAuthority(value: string): SshAuthority {
+function getStructuredAuthorityDetails(
+  parsed: Record<string, unknown>,
+  decoded: string,
+  fallbackUsername?: string
+): ParsedSshAuthorityDetails | undefined {
+  const hostname = getStringProperty(parsed, ['hostName', 'hostname', 'host']);
+  if (!hostname) {
+    return undefined;
+  }
+
+  const hasExplicitPort = Object.prototype.hasOwnProperty.call(parsed, 'port');
+  const port = parsePort(parsed.port);
+  return {
+    hostname,
+    username: getStringProperty(parsed, ['user', 'username']) || fallbackUsername,
+    port,
+    structured: true,
+    decoded,
+    invalidExplicitPort: hasExplicitPort && port === undefined
+  };
+}
+
+function parseRemoteSshAuthorityDetails(value: string): ParsedSshAuthorityDetails {
   const decoded = safeDecode(value).trim();
   const parsed = parseAuthorityObject(decoded);
 
   if (parsed) {
-    const hostname = getStringProperty(parsed, ['hostName', 'hostname', 'host']);
-    if (hostname) {
-      return {
-        hostname,
-        username: getStringProperty(parsed, ['user', 'username']),
-        port: parsePort(parsed.port),
-        structured: true
-      };
+    const details = getStructuredAuthorityDetails(parsed, decoded);
+    if (details) {
+      return details;
     }
   }
 
   const atIndex = decoded.lastIndexOf('@');
+  if (atIndex > 0) {
+    const nested = parseAuthorityObject(decoded.slice(atIndex + 1));
+    if (nested) {
+      const details = getStructuredAuthorityDetails(nested, decoded, decoded.slice(0, atIndex));
+      if (details) {
+        return details;
+      }
+    }
+  }
+
   return {
     hostname: atIndex > 0 ? decoded.slice(atIndex + 1) : decoded,
     username: atIndex > 0 ? decoded.slice(0, atIndex) : undefined,
     port: undefined,
-    structured: false
+    structured: false,
+    decoded,
+    invalidExplicitPort: false
   };
+}
+
+export function parseRemoteSshAuthority(value: string): SshAuthority {
+  const { hostname, username, port, structured } = parseRemoteSshAuthorityDetails(value);
+  return { hostname, username, port, structured };
 }
 
 export function encodeRemoteSshAuthority(target: SshTarget): string {
   const hostname = target.hostname.trim();
   const username = target.username?.trim() || undefined;
   const port = parsePort(target.port);
+  if (target.port !== undefined && port === undefined) {
+    throw new RangeError('SSH port must be an integer between 1 and 65535.');
+  }
+
   const mustUseStructuredAuthority = Boolean(
     username
     || target.port !== undefined
@@ -165,10 +208,14 @@ function isSameUsername(left: string | undefined, right: string | undefined): bo
 
 export function normalizeRemoteSshAuthority(authority: string): string {
   const decoded = safeDecode(authority).trim();
-  const parsed = parseRemoteSshAuthority(decoded);
+  const parsed = parseRemoteSshAuthorityDetails(decoded);
 
   if (!parsed.structured) {
     return decoded;
+  }
+
+  if (parsed.invalidExplicitPort) {
+    return parsed.decoded;
   }
 
   return formatNormalizedStructuredAuthority(parsed);
@@ -183,10 +230,18 @@ export function normalizeRemoteSshUserHost(userHost: string): string {
 
   const username = decoded.slice(0, atIndex);
   const rawHostAuthority = decoded.slice(atIndex + 1);
-  const parsedHostAuthority = parseRemoteSshAuthority(rawHostAuthority);
+  const parsedHostAuthority = parseRemoteSshAuthorityDetails(rawHostAuthority);
   const hostAuthority = normalizeRemoteSshAuthority(rawHostAuthority);
 
   if (parsedHostAuthority.structured) {
+    if (parsedHostAuthority.invalidExplicitPort) {
+      if (parsedHostAuthority.username || isSameUsername(username, getLocalUsername())) {
+        return parsedHostAuthority.decoded;
+      }
+
+      return `${username}@${parsedHostAuthority.decoded}`;
+    }
+
     if (parsedHostAuthority.username) {
       return formatNormalizedStructuredAuthority(parsedHostAuthority);
     }
@@ -341,6 +396,13 @@ export function buildRemoteSshUri(input: string): string | null {
   const parsed = parseRawSshPath(trimmed);
   if (!parsed) {
     return null;
+  }
+
+  const sourceAuthority = parseRemoteSshAuthorityDetails(parsed.userHost);
+  if (sourceAuthority.structured && sourceAuthority.invalidExplicitPort) {
+    const remotePath = normalizeRemoteSshPath(parsed.remotePath);
+    const uriPath = remotePath.startsWith('/') ? remotePath : `/${remotePath}`;
+    return `vscode-remote://ssh-remote+${sourceAuthority.decoded}${uriPath}`;
   }
 
   return buildRemoteSshUriFromTarget(parsed, parsed.remotePath);
