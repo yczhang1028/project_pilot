@@ -8,6 +8,7 @@ const {
   getRawSshPathFromRemoteUri,
   normalizeRemoteSshAuthority,
   parseRemoteSshAuthority,
+  parseRemoteSshAuthorityStrict,
   parseRawSshPath
 } = require('../out/sshPath');
 
@@ -22,6 +23,33 @@ const encodedAuthorityWithUserAndPort = Buffer.from(JSON.stringify({
   user: 'yichi',
   port: 2222
 })).toString('hex');
+
+assert.strictEqual(typeof parseRemoteSshAuthorityStrict, 'function');
+assert.deepStrictEqual(
+  parseRemoteSshAuthorityStrict(encodedAuthorityWithUserAndPort),
+  {
+    authority: {
+      hostname: '10.7.8.9',
+      username: 'yichi',
+      port: 2222,
+      structured: true
+    }
+  }
+);
+assert.deepStrictEqual(
+  parseRemoteSshAuthorityStrict(Buffer.from(JSON.stringify({
+    hostName: '10.7.8.9',
+    port: 70000
+  })).toString('hex')),
+  { error: 'invalid-port' }
+);
+assert.deepStrictEqual(
+  parseRemoteSshAuthorityStrict(Buffer.from(JSON.stringify({
+    user: 'yichi',
+    port: 2222
+  })).toString('hex')),
+  { error: 'missing-hostname' }
+);
 
 assert.deepStrictEqual(
   parseRemoteSshAuthority(encodedAuthorityWithUserAndPort),

@@ -21,6 +21,10 @@ export interface SshTarget {
   port?: number;
 }
 
+export type StrictSshAuthorityParseResult =
+  | { authority: SshAuthority }
+  | { error: 'missing-hostname' | 'invalid-port' };
+
 interface ParsedSshAuthorityDetails extends SshAuthority {
   canonicalStructuredAuthority: string;
   invalidExplicitPort: boolean;
@@ -171,6 +175,60 @@ function parseRemoteSshAuthorityDetails(value: string): ParsedSshAuthorityDetail
 export function parseRemoteSshAuthority(value: string): SshAuthority {
   const { hostname, username, port, structured } = parseRemoteSshAuthorityDetails(value);
   return { hostname, username, port, structured };
+}
+
+function parseStrictStructuredAuthority(
+  properties: Record<string, unknown>,
+  fallbackUsername?: string
+): StrictSshAuthorityParseResult {
+  const hostname = getStringProperty(properties, ['hostName', 'hostname', 'host']);
+  if (!hostname) {
+    return { error: 'missing-hostname' };
+  }
+
+  const hasExplicitPort = Object.prototype.hasOwnProperty.call(properties, 'port');
+  const port = properties.port;
+  if (hasExplicitPort && (
+    typeof port !== 'number'
+    || !Number.isInteger(port)
+    || port < 1
+    || port > 65535
+  )) {
+    return { error: 'invalid-port' };
+  }
+
+  const username = getStringProperty(properties, ['user', 'username'])
+    || fallbackUsername?.trim()
+    || undefined;
+  return {
+    authority: {
+      hostname,
+      username,
+      port: hasExplicitPort ? port as number : undefined,
+      structured: true
+    }
+  };
+}
+
+export function parseRemoteSshAuthorityStrict(value: string): StrictSshAuthorityParseResult {
+  const decoded = safeDecode(value).trim();
+  const parsed = parseAuthorityObject(decoded);
+  if (parsed) {
+    return parseStrictStructuredAuthority(parsed.properties);
+  }
+
+  const atIndex = decoded.lastIndexOf('@');
+  if (atIndex > 0) {
+    const nested = parseAuthorityObject(decoded.slice(atIndex + 1));
+    if (nested) {
+      return parseStrictStructuredAuthority(nested.properties, decoded.slice(0, atIndex));
+    }
+  }
+
+  const authority = parseRemoteSshAuthority(value);
+  return authority.hostname.trim()
+    ? { authority }
+    : { error: 'missing-hostname' };
 }
 
 export function encodeRemoteSshAuthority(target: SshTarget): string {

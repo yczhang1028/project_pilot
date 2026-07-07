@@ -52,9 +52,26 @@ assert.throws(
   () => validateSshHost({ id: 'h2', name: 'Other', hostname: 'other', port: 65536 }, []),
   /integer between 1 and 65535/i
 );
+assert.throws(
+  () => validateSshHost({ id: '   ', name: 'Missing ID', hostname: 'host' }, []),
+  /id.*required/i
+);
+assert.throws(
+  () => validateSshHost({ id: ' host-1 ', name: 'Duplicate ID', hostname: 'other' }, [normalizedHost]),
+  /id.*already exists/i
+);
 assert.doesNotThrow(
   () => validateSshHost({ ...normalizedHost, name: 'Renamed' }, [normalizedHost], normalizedHost.id),
   'the Host being edited is excluded from duplicate checks'
+);
+assert.throws(
+  () => validateSshHost(
+    { ...normalizedHost, name: 'Renamed' },
+    [normalizedHost, { id: normalizedHost.id, name: 'Second owner', hostname: 'second.example.com' }],
+    normalizedHost.id
+  ),
+  /id.*already exists/i,
+  'editing excludes exactly one current Host ID occurrence'
 );
 
 const secondLegacyUri = buildRemoteSshUriFromTarget(
@@ -151,6 +168,81 @@ for (const username of ['DOMAIN\\user', 'name:part']) {
   assert.deepStrictEqual(unsafeUsernameAgain.state, unsafeUsernameMigration.state);
 }
 
+const validCustomPortUri = buildRemoteSshUriFromTarget(
+  { hostname: 'custom.example.com', username: 'u', port: 2222 },
+  '/srv/custom'
+);
+const validCustomPortMigration = migrateSshState({
+  projects: [{
+    id: 'valid-custom-port',
+    name: 'Valid custom port',
+    path: validCustomPortUri,
+    type: 'ssh'
+  }]
+});
+assert.strictEqual(validCustomPortMigration.state.sshHosts.length, 1);
+assert.deepStrictEqual(
+  (({ hostname, username, port }) => ({ hostname, username, port }))(
+    validCustomPortMigration.state.sshHosts[0]
+  ),
+  { hostname: 'custom.example.com', username: 'u', port: 2222 }
+);
+assert.strictEqual(validCustomPortMigration.state.projects[0].remotePath, '/srv/custom');
+assert.match(validCustomPortMigration.state.projects[0].path, /^vscode-remote:\/\/ssh-remote\+/);
+assert.deepStrictEqual(validCustomPortMigration.warnings, []);
+
+for (const { payload, reason } of [
+  { payload: { hostName: 'example.com', port: 70000 }, reason: /invalid.*port/i },
+  { payload: { user: 'u', port: 2222 }, reason: /hostname/i }
+]) {
+  const authority = Buffer.from(JSON.stringify(payload), 'utf8').toString('hex');
+  const originalProject = {
+    id: `malformed-${authority}`,
+    name: 'Malformed structured authority',
+    path: `vscode-remote://ssh-remote+${authority}/srv/repo`,
+    type: 'ssh'
+  };
+  const malformedMigration = migrateSshState({ projects: [originalProject] });
+
+  assert.deepStrictEqual(malformedMigration.state.sshHosts, []);
+  assert.deepStrictEqual(malformedMigration.state.projects[0], originalProject);
+  assert.strictEqual(malformedMigration.warnings.length, 1);
+  assert.match(malformedMigration.warnings[0].message, reason);
+  assert.match(malformedMigration.warnings[0].message, /retained unmanaged/i);
+}
+
+const deterministicLegacyState = {
+  projects: [
+    {
+      id: 'deterministic-alice',
+      name: 'Alice project',
+      path: 'alice@shared.example.com:/srv/alice',
+      type: 'ssh'
+    },
+    {
+      id: 'deterministic-bob',
+      name: 'Bob project',
+      path: 'bob@shared.example.com:/srv/bob',
+      type: 'ssh'
+    }
+  ]
+};
+const deterministicMigrationOne = migrateSshState(
+  JSON.parse(JSON.stringify(deterministicLegacyState))
+);
+const deterministicMigrationTwo = migrateSshState(
+  JSON.parse(JSON.stringify(deterministicLegacyState))
+);
+assert.deepStrictEqual(deterministicMigrationOne, deterministicMigrationTwo);
+assert.deepStrictEqual(
+  deterministicMigrationOne.state.sshHosts.map(host => host.name),
+  ['shared.example.com', 'shared.example.com 2']
+);
+assert.notStrictEqual(
+  deterministicMigrationOne.state.sshHosts[0].id,
+  deterministicMigrationOne.state.sshHosts[1].id
+);
+
 const linuxHost = {
   id: 'linux',
   name: 'Linux',
@@ -240,6 +332,29 @@ assert.strictEqual(
 const unmanagedProject = { id: 'legacy', name: 'Legacy', path: 'broken', type: 'ssh' };
 assert.strictEqual(materializeManagedProject(unmanagedProject, [linuxHost]), unmanagedProject);
 assert.strictEqual(materializeManagedProject(localProject, [linuxHost]), localProject);
+
+const incompleteManagedProjects = ['', '   '].map((remotePath, index) => ({
+  ...linuxProject,
+  id: `incomplete-${index}`,
+  name: `Incomplete ${index}`,
+  path: 'stale-compatibility-path',
+  remotePath
+}));
+for (const project of incompleteManagedProjects) {
+  assert.throws(
+    () => resolveManagedSshProject(project, [linuxHost]),
+    /SSH project remote path cannot be empty/
+  );
+  assert.strictEqual(
+    materializeManagedProject(project, [linuxHost]),
+    project,
+    'incomplete managed projects retain their stale compatibility path'
+  );
+}
+const incompleteBuckets = buildHostBuckets(incompleteManagedProjects, [linuxHost]);
+assert.deepStrictEqual(incompleteBuckets.map(bucket => bucket.name), ['Linux', 'Unmanaged SSH']);
+assert.deepStrictEqual(incompleteBuckets[0].projects, []);
+assert.deepStrictEqual(incompleteBuckets[1].projects, incompleteManagedProjects);
 
 const unusedHost = { id: 'unused', name: 'Alpha Unused', hostname: 'unused.example.com' };
 const buckets = buildHostBuckets(

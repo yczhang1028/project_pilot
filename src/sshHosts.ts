@@ -2,7 +2,7 @@ import type { ProjectItem, UISettings } from './store';
 import {
   buildRemoteSshUriFromTarget,
   normalizeRemoteSshPath,
-  parseRemoteSshAuthority,
+  parseRemoteSshAuthorityStrict,
   parseRawSshPath
 } from './sshPath';
 
@@ -85,6 +85,9 @@ export function validateSshHost(
     ...(host.port !== undefined ? { port: host.port } : {})
   };
 
+  if (!normalized.id) {
+    throw new Error('SSH Host id is required');
+  }
   if (!normalized.name) {
     throw new Error('SSH Host name is required');
   }
@@ -98,7 +101,17 @@ export function validateSshHost(
     throw new Error('SSH port must be an integer between 1 and 65535');
   }
 
-  const otherHosts = existingHosts.filter(existing => existing.id !== excludeId);
+  let excludedCurrentId = false;
+  const otherHosts = existingHosts.filter(existing => {
+    if (!excludedCurrentId && excludeId !== undefined && existing.id === excludeId) {
+      excludedCurrentId = true;
+      return false;
+    }
+    return true;
+  });
+  if (otherHosts.some(existing => existing.id.trim() === normalized.id)) {
+    throw new Error(`SSH Host id "${normalized.id}" already exists`);
+  }
   if (otherHosts.some(existing => existing.name.trim().toLowerCase() === normalized.name.toLowerCase())) {
     throw new Error(`SSH Host name "${normalized.name}" already exists`);
   }
@@ -121,6 +134,13 @@ function isManagedSshProject(project: SshProjectItem): project is SshProjectItem
     && typeof project.sshHostId === 'string'
     && project.sshHostId.length > 0
     && typeof project.remotePath === 'string';
+}
+
+function isCompleteManagedSshProject(project: SshProjectItem): project is SshProjectItem & {
+  sshHostId: string;
+  remotePath: string;
+} {
+  return isManagedSshProject(project) && project.remotePath.trim().length > 0;
 }
 
 function readablePath(host: SshHost, remotePath: string, includePort: boolean): string {
@@ -148,13 +168,17 @@ export function resolveManagedSshProject(
   if (!isManagedSshProject(project)) {
     throw new Error(`Project ${project.name} is not a managed SSH project`);
   }
+  const trimmedRemotePath = project.remotePath.trim();
+  if (!trimmedRemotePath) {
+    throw new Error('SSH project remote path cannot be empty');
+  }
 
   const host = hosts.find(candidate => candidate.id === project.sshHostId);
   if (!host) {
     throw new Error(`SSH Host ${project.sshHostId} was not found`);
   }
 
-  const remotePath = normalizeRemoteSshPath(project.remotePath.trim());
+  const remotePath = normalizeRemoteSshPath(trimmedRemotePath);
   const target = {
     hostname: host.hostname.trim(),
     ...(normalizedOptional(host.username) ? { username: normalizedOptional(host.username) } : {}),
@@ -178,7 +202,7 @@ export function materializeManagedProject(
   project: SshProjectItem,
   hosts: readonly SshHost[]
 ): SshProjectItem {
-  if (!isManagedSshProject(project)) {
+  if (!isCompleteManagedSshProject(project)) {
     return project;
   }
 
@@ -217,7 +241,18 @@ function uniqueHostName(hostname: string, usedNames: Set<string>): string {
   return candidate;
 }
 
-function parseLegacyProject(project: SshProjectItem) {
+interface ParsedLegacyProject {
+  hostname: string;
+  username?: string;
+  port?: number;
+  remotePath: string;
+}
+
+type LegacyProjectParseResult =
+  | { parsed: ParsedLegacyProject }
+  | { warning: string };
+
+function parseLegacyProject(project: SshProjectItem): LegacyProjectParseResult {
   const trimmedPath = project.path.trim();
   const remoteUriPrefix = 'vscode-remote://ssh-remote+';
 
@@ -225,33 +260,45 @@ function parseLegacyProject(project: SshProjectItem) {
     const authorityAndPath = trimmedPath.slice(remoteUriPrefix.length);
     const pathIndex = authorityAndPath.indexOf('/');
     if (pathIndex <= 0) {
-      return null;
+      return { warning: 'Remote-SSH URI is missing an authority or path; project was retained unmanaged' };
     }
 
-    const authority = parseRemoteSshAuthority(authorityAndPath.slice(0, pathIndex));
+    const authorityResult = parseRemoteSshAuthorityStrict(authorityAndPath.slice(0, pathIndex));
+    if ('error' in authorityResult) {
+      return {
+        warning: authorityResult.error === 'invalid-port'
+          ? 'Structured SSH authority has an invalid port; project was retained unmanaged'
+          : 'Structured SSH authority is missing a hostname; project was retained unmanaged'
+      };
+    }
+    const { authority } = authorityResult;
     const remotePath = normalizeRemoteSshPath(authorityAndPath.slice(pathIndex).trim());
     if (!authority.hostname.trim() || !remotePath) {
-      return null;
+      return { warning: 'Remote-SSH URI is missing a hostname or path; project was retained unmanaged' };
     }
 
     return {
-      hostname: authority.hostname.trim(),
-      ...(normalizedOptional(authority.username) ? { username: normalizedOptional(authority.username) } : {}),
-      ...(authority.port !== undefined ? { port: authority.port } : {}),
-      remotePath
+      parsed: {
+        hostname: authority.hostname.trim(),
+        ...(normalizedOptional(authority.username) ? { username: normalizedOptional(authority.username) } : {}),
+        ...(authority.port !== undefined ? { port: authority.port } : {}),
+        remotePath
+      }
     };
   }
 
   const parsed = parseRawSshPath(trimmedPath);
   if (!parsed) {
-    return null;
+    return { warning: 'SSH path could not be parsed; project was retained unmanaged' };
   }
 
   return {
-    hostname: parsed.hostname.trim(),
-    ...(normalizedOptional(parsed.username) ? { username: normalizedOptional(parsed.username) } : {}),
-    ...(parsed.port !== undefined ? { port: parsed.port } : {}),
-    remotePath: normalizeRemoteSshPath(parsed.remotePath.trim())
+    parsed: {
+      hostname: parsed.hostname.trim(),
+      ...(normalizedOptional(parsed.username) ? { username: normalizedOptional(parsed.username) } : {}),
+      ...(parsed.port !== undefined ? { port: parsed.port } : {}),
+      remotePath: normalizeRemoteSshPath(parsed.remotePath.trim())
+    }
   };
 }
 
@@ -280,15 +327,16 @@ export function migrateSshState(input: SshStateLike): {
       return project;
     }
 
-    const parsed = parseLegacyProject(project);
-    if (!parsed) {
+    const parseResult = parseLegacyProject(project);
+    if ('warning' in parseResult) {
       warnings.push({
         ...(project.id ? { projectId: project.id } : {}),
         projectName: project.name,
-        message: `Could not parse the legacy SSH path for ${project.name}`
+        message: parseResult.warning
       });
       return project;
     }
+    const { parsed } = parseResult;
 
     const connectionKey = hostConnectionKey(parsed);
     let host = hostsByConnection.get(connectionKey);
@@ -344,7 +392,7 @@ export function buildHostBuckets(
     hostId: host.id,
     name: host.name,
     host,
-    projects: projects.filter(project => isManagedSshProject(project) && project.sshHostId === host.id),
+    projects: projects.filter(project => isCompleteManagedSshProject(project) && project.sshHostId === host.id),
     local: false
   }));
   const localProjects = projects.filter(project => project.type === 'local' || project.type === 'workspace');
@@ -357,7 +405,7 @@ export function buildHostBuckets(
   }
 
   const unmanagedProjects = projects.filter(project => isSshProject(project) && (
-    !isManagedSshProject(project) || !hostIds.has(project.sshHostId)
+    !isCompleteManagedSshProject(project) || !hostIds.has(project.sshHostId)
   ));
   if (unmanagedProjects.length > 0) {
     buckets.push({
