@@ -280,7 +280,40 @@ try {
     .getChildren()
     .find(node => node.sectionKind === 'mode-root')
     .children[0];
-  assert.deepStrictEqual(JSON.parse(encodedGroup.id), ['group', 'group', 'Ops:Prod']);
+  assert.strictEqual(encodedGroup.id, 'group:group:Ops:Prod');
+
+  const legacyExpansionWorkspaceState = {
+    get(key, fallback) {
+      return key === 'projectPilot.outlineExpansionState'
+        ? { 'group:group:Ops': false }
+        : fallback;
+    },
+    async update() {}
+  };
+  const expansionProvider = new OutlineTreeProvider({
+    state: {
+      sshHosts: [],
+      projects: [
+        { id: 'ops-one', name: 'Ops One', path: 'C:\\ops-one', group: 'Ops', type: 'local' },
+        { id: 'ops-two', name: 'Ops Two', path: 'C:\\ops-two', group: 'Ops', type: 'local' }
+      ]
+    }
+  }, legacyExpansionWorkspaceState, 'group');
+  const expansionGroup = expansionProvider
+    .getChildren()
+    .find(node => node.sectionKind === 'mode-root')
+    .children[0];
+  assert.strictEqual(expansionGroup.id, 'group:group:Ops');
+  assert.strictEqual(
+    expansionProvider.getTreeItem(expansionGroup).collapsibleState,
+    vscodeMock.TreeItemCollapsibleState.Collapsed,
+    'legacy group expansion keys remain effective'
+  );
+  assert.strictEqual(
+    new Set(expansionGroup.children.map(node => node.id)).size,
+    expansionGroup.children.length,
+    'valid unique projects under one parent always receive distinct tree IDs'
+  );
 
   const displayProvider = new OutlineTreeProvider({
     state: {

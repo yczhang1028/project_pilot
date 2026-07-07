@@ -219,7 +219,7 @@ export class ConfigStore {
       sshHosts.push(validateSshHost(host, sshHosts));
     }
 
-    const projects = migration.state.projects.map((project, index) => {
+    const migratedProjects = migration.state.projects.map((project, index) => {
       this.validateProjectStructure(project, index);
       const isSshProject = project.type === 'ssh' || project.type === 'ssh-workspace';
       const hasManagedFields = project.sshHostId !== undefined || project.remotePath !== undefined;
@@ -237,6 +237,7 @@ export class ConfigStore {
       resolveManagedSshProject(project, sshHosts);
       return materializeManagedProject(project, sshHosts) as ProjectItem;
     });
+    const projects = enforceProjectIdentityInvariant(migratedProjects, !isSchemaV2);
 
     const uiSettings = this.validateUISettings(migration.state.uiSettings, false);
     const state: State = {
@@ -441,14 +442,16 @@ export class ConfigStore {
   async addProject(p: ProjectItem) {
     const input = cloneValue(p);
     await this.mutate(state => {
-      state.projects.push({ ...input, id: input.id ?? genId() });
+      const usedIds = collectProjectIds(state.projects);
+      state.projects.push({ ...input, id: input.id ?? generateUniqueProjectId(usedIds) });
     });
   }
 
   async upsertProject(p: ProjectItem) {
     const input = cloneValue(p);
     await this.mutate(state => {
-      const project = { ...input, id: input.id ?? genId() };
+      const usedIds = collectProjectIds(state.projects);
+      const project = { ...input, id: input.id ?? generateUniqueProjectId(usedIds) };
       const idx = state.projects.findIndex(x => x.id === project.id);
       if (idx >= 0) state.projects[idx] = project; else state.projects.push(project);
     });
@@ -561,21 +564,37 @@ export class ConfigStore {
         throw new Error(`Target SSH Host ${targetId} was not found`);
       }
 
-      const selectedIds = selectedProjectIds ? new Set(selectedProjectIds) : undefined;
-      if (selectedIds) {
-        for (const projectId of selectedIds) {
-          const project = state.projects.find(candidate => candidate.id === projectId);
-          if (!project) {
+      if (selectedProjectIds) {
+        const uniqueSelectedIds = new Set<string>();
+        const selectedProjects: ProjectItem[] = [];
+        for (const projectId of selectedProjectIds) {
+          if (uniqueSelectedIds.has(projectId)) {
+            throw new Error(`Duplicate selected project ID "${projectId}"`);
+          }
+          uniqueSelectedIds.add(projectId);
+
+          const matches = state.projects.filter(candidate => candidate.id === projectId);
+          if (matches.length === 0) {
             throw new Error(`Project ${projectId} was not found`);
           }
+          if (matches.length !== 1) {
+            throw new Error(`Project ${projectId} must map to exactly one current project`);
+          }
+          const project = matches[0];
           if (project.sshHostId !== sourceId) {
             throw new Error(`Project ${projectId} does not belong to source SSH Host ${sourceId}`);
           }
+          selectedProjects.push(project);
         }
+
+        for (const project of selectedProjects) {
+          project.sshHostId = targetId;
+        }
+        return;
       }
 
       for (const project of state.projects) {
-        if (project.sshHostId === sourceId && (!selectedIds || (project.id && selectedIds.has(project.id)))) {
+        if (project.sshHostId === sourceId) {
           project.sshHostId = targetId;
         }
       }
@@ -677,7 +696,6 @@ export class ConfigStore {
       this.validateProjectStructure(project, index);
 
       if (!preserveSchemaV2) {
-        project.id = project.id || genId();
         project.color = project.color || '#3b82f6';
         project.tags = project.tags || [];
         project.description = project.description || '';
@@ -801,6 +819,60 @@ export class ConfigStore {
 
 function genId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function collectProjectIds(projects: readonly ProjectItem[]): Set<string> {
+  return new Set(projects.flatMap(project => (
+    typeof project.id === 'string' && project.id.trim().length > 0 ? [project.id] : []
+  )));
+}
+
+function generateUniqueProjectId(usedIds: ReadonlySet<string>): string {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const candidate = genId();
+    if (candidate.trim().length > 0 && !usedIds.has(candidate)) {
+      return candidate;
+    }
+  }
+
+  let suffix = usedIds.size + 1;
+  let candidate = `project-${suffix}`;
+  while (usedIds.has(candidate)) {
+    suffix += 1;
+    candidate = `project-${suffix}`;
+  }
+  return candidate;
+}
+
+function enforceProjectIdentityInvariant(
+  projects: readonly ProjectItem[],
+  repairLegacyIds: boolean
+): ProjectItem[] {
+  const usedIds = new Set<string>();
+  // Legacy policy: preserve the first explicit nonempty ID and repair every
+  // missing/blank or later duplicate ID without consuming a reserved ID.
+  const reservedIds = collectProjectIds(projects);
+  return projects.map((project, index) => {
+    const id = project.id;
+    const hasNonemptyId = typeof id === 'string' && id.trim().length > 0;
+    const isDuplicate = hasNonemptyId && usedIds.has(id);
+    if ((!hasNonemptyId || isDuplicate) && !repairLegacyIds) {
+      if (!hasNonemptyId) {
+        throw new Error(`Project ID at index ${index} must be a nonempty string`);
+      }
+      throw new Error(`Duplicate project ID "${id}" at index ${index}`);
+    }
+
+    if (!hasNonemptyId || isDuplicate) {
+      const generatedId = generateUniqueProjectId(reservedIds);
+      usedIds.add(generatedId);
+      reservedIds.add(generatedId);
+      return { ...project, id: generatedId };
+    }
+
+    usedIds.add(id);
+    return project;
+  });
 }
 
 function cloneState(state: State): State {

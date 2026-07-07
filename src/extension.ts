@@ -824,10 +824,16 @@ export async function activate(context: vscode.ExtensionContext) {
       const sourceName = displayHostName(source.name);
       const captured = captureSshHostMigrationProjectIds(store.state.projects, source.id);
       if (!captured.success) {
-        const missingProjects = captured.missingProjectCount;
-        vscode.window.showErrorMessage(
-          `Cannot migrate projects from "${sourceName}" because ${missingProjects} linked project${missingProjects === 1 ? '' : 's'} ${missingProjects === 1 ? 'does' : 'do'} not have an ID`
-        );
+        if ('missingProjectCount' in captured) {
+          const missingProjects = captured.missingProjectCount;
+          vscode.window.showErrorMessage(
+            `Cannot migrate projects from "${sourceName}" because ${missingProjects} linked project${missingProjects === 1 ? '' : 's'} ${missingProjects === 1 ? 'does' : 'do'} not have an ID`
+          );
+        } else {
+          vscode.window.showErrorMessage(
+            `Cannot migrate projects from "${sourceName}" because ${captured.duplicateProjectCount} linked projects share duplicate IDs`
+          );
+        }
         return;
       }
       if (captured.projectIds.length === 0) {

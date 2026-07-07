@@ -222,7 +222,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     return Array.from(groups.entries())
       .sort(([left], [right]) => this.sortGroupNames(left, right))
       .map(([groupName, projects]) => {
-        const id = treeNodeId('group', this.outlineMode, groupName);
+        const id = `group:${this.outlineMode}:${groupName}`;
         const displayGroupName = displayText(groupName, 'Unnamed Group');
         return {
           id,

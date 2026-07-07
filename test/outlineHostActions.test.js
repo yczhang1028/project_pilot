@@ -58,6 +58,18 @@ async function testMigrationCapture() {
     },
     'a missing linked project ID aborts the selection instead of returning a partial list'
   );
+  assert.deepStrictEqual(
+    actions.captureSshHostMigrationProjectIds([
+      { id: 'duplicate', name: 'One', sshHostId: 'source' },
+      { id: 'unique', name: 'Unique', sshHostId: 'source' },
+      { id: 'duplicate', name: 'Two', sshHostId: 'source' }
+    ], 'source'),
+    {
+      success: false,
+      duplicateProjectCount: 2
+    },
+    'duplicate linked IDs abort capture instead of creating an ambiguous selection'
+  );
 
   assert.strictEqual(typeof actions.migrateCapturedSshHostProjects, 'function');
   const calls = [];

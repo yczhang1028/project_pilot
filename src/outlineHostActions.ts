@@ -29,7 +29,8 @@ interface MigrationProject {
 
 export type CapturedSshHostMigration =
   | { success: true; projectIds: string[] }
-  | { success: false; missingProjectCount: number };
+  | { success: false; missingProjectCount: number }
+  | { success: false; duplicateProjectCount: number };
 
 export function captureSshHostMigrationProjectIds(
   projects: readonly MigrationProject[],
@@ -41,6 +42,18 @@ export function captureSshHostMigrationProjectIds(
   )).length;
   if (missingProjectCount > 0) {
     return { success: false, missingProjectCount };
+  }
+
+  const idCounts = new Map<string, number>();
+  for (const project of linkedProjects) {
+    const id = project.id as string;
+    idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+  }
+  const duplicateProjectCount = linkedProjects.filter(project => (
+    idCounts.get(project.id as string)! > 1
+  )).length;
+  if (duplicateProjectCount > 0) {
+    return { success: false, duplicateProjectCount };
   }
 
   return {

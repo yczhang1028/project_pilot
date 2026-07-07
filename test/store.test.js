@@ -318,6 +318,148 @@ async function expectReject(action, pattern) {
   }
 
   {
+    const duplicateV2 = baseState([
+      { id: 'duplicate', name: 'First', path: 'C:\\first', type: 'local' },
+      { id: 'duplicate', name: 'Second', path: 'C:\\second', type: 'local' }
+    ]);
+    await expectReject(() => createStore(duplicateV2), /duplicate project id.*duplicate/i);
+    await expectReject(
+      () => createStore(baseState([{ name: 'Missing ID', path: 'C:\\missing', type: 'local' }])),
+      /project id.*nonempty/i
+    );
+    await expectReject(
+      () => createStore(baseState([{ id: '   ', name: 'Blank ID', path: 'C:\\blank', type: 'local' }])),
+      /project id.*nonempty/i
+    );
+  }
+
+  {
+    const { store, configPath } = await createStore(baseState([
+      { id: 'good', name: 'Good', path: 'C:\\good', type: 'local' }
+    ]));
+    const beforeState = JSON.parse(JSON.stringify(store.state));
+    const beforeDisk = readJson(configPath);
+    const duplicateState = baseState([
+      { id: 'duplicate', name: 'First', path: 'C:\\first', type: 'local' },
+      { id: 'duplicate', name: 'Second', path: 'C:\\second', type: 'local' }
+    ]);
+
+    const importUri = uri('C:\\imports\\duplicate-v2.json');
+    putJson(importUri.fsPath, duplicateState);
+    const backupWritesBefore = writeTargets.filter(
+      target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)
+    ).length;
+    await expectReject(() => store.importFromFile(importUri), /duplicate project id.*duplicate/i);
+    assert.deepStrictEqual(store.state, beforeState, 'duplicate v2 import is atomic');
+    assert.deepStrictEqual(readJson(configPath), beforeDisk, 'duplicate v2 import does not overwrite disk');
+    assert.strictEqual(
+      writeTargets.filter(target => target.includes(`${path.win32.sep}backups${path.win32.sep}`)).length,
+      backupWritesBefore,
+      'duplicate v2 import is rejected before backup preprocessing'
+    );
+
+    putJson(configPath, duplicateState);
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+      await expectReject(() => store.reload(), /duplicate project id.*duplicate/i);
+    } finally {
+      console.error = originalConsoleError;
+    }
+    assert.deepStrictEqual(store.state, beforeState, 'duplicate v2 reload preserves the last good state');
+  }
+
+  {
+    const existing = { id: 'taken', name: 'Existing', path: 'C:\\existing', type: 'local' };
+    const { store } = await createStore(baseState([existing]));
+    const duplicateInput = { id: 'taken', name: 'Duplicate', path: 'C:\\duplicate', type: 'local' };
+    const before = JSON.parse(JSON.stringify(store.state));
+    await expectReject(() => store.addProject(duplicateInput), /duplicate project id.*taken/i);
+    assert.deepStrictEqual(store.state, before, 'duplicate addProject is atomic');
+    assert.deepStrictEqual(
+      duplicateInput,
+      { id: 'taken', name: 'Duplicate', path: 'C:\\duplicate', type: 'local' },
+      'duplicate addProject does not mutate its input'
+    );
+  }
+
+  {
+    const collisionRandom = 0.5;
+    const generatedCollision = collisionRandom.toString(36).slice(2, 10);
+    const { store } = await createStore(baseState([
+      { id: generatedCollision, name: 'Existing', path: 'C:\\existing', type: 'local' }
+    ]));
+    const firstInput = { name: 'Generated One', path: 'C:\\generated-one', type: 'local' };
+    const secondInput = { name: 'Generated Two', path: 'C:\\generated-two', type: 'local' };
+    const originalRandom = Math.random;
+    Math.random = () => collisionRandom;
+    try {
+      await store.addProject(firstInput);
+      await store.addProject(secondInput);
+    } finally {
+      Math.random = originalRandom;
+    }
+    const ids = store.state.projects.map(project => project.id);
+    assert.ok(ids.every(id => typeof id === 'string' && id.trim().length > 0));
+    assert.strictEqual(new Set(ids).size, ids.length, 'generated project IDs remain unique after collisions');
+    assert.deepStrictEqual(firstInput, { name: 'Generated One', path: 'C:\\generated-one', type: 'local' });
+    assert.deepStrictEqual(secondInput, { name: 'Generated Two', path: 'C:\\generated-two', type: 'local' });
+  }
+
+  {
+    const collisionRandom = 0.5;
+    const reservedLegacyId = collisionRandom.toString(36).slice(2, 10);
+    const originalRandom = Math.random;
+    Math.random = () => collisionRandom;
+    try {
+      const { store } = await createStore({
+        projects: [
+          { name: 'Missing Before Reserved', path: 'C:\\missing-first', type: 'local' },
+          { id: reservedLegacyId, name: 'Keep Reserved', path: 'C:\\reserved', type: 'local' },
+          { id: reservedLegacyId, name: 'Repair Reserved Duplicate', path: 'C:\\reserved-duplicate', type: 'local' }
+        ]
+      });
+      const ids = store.state.projects.map(project => project.id);
+      assert.strictEqual(ids[1], reservedLegacyId, 'legacy repair reserves the first explicit valid ID');
+      assert.strictEqual(new Set(ids).size, ids.length);
+    } finally {
+      Math.random = originalRandom;
+    }
+  }
+
+  {
+    const legacyProjects = [
+      { id: 'legacy-id', name: 'Keep ID', path: 'C:\\keep', type: 'local' },
+      { id: 'legacy-id', name: 'Repair Duplicate', path: 'C:\\duplicate', type: 'local' },
+      { name: 'Repair Missing', path: 'C:\\missing', type: 'local' },
+      { id: '   ', name: 'Repair Blank', path: 'C:\\blank', type: 'local' }
+    ];
+    const { store: startupStore } = await createStore({ projects: legacyProjects });
+    const startupIds = startupStore.state.projects.map(project => project.id);
+    assert.strictEqual(startupStore.state.projects.length, legacyProjects.length);
+    assert.strictEqual(startupIds[0], 'legacy-id', 'legacy policy preserves the first valid ID');
+    assert.ok(startupIds.every(id => typeof id === 'string' && id.trim().length > 0));
+    assert.strictEqual(new Set(startupIds).size, startupIds.length, 'legacy startup repairs duplicate/missing IDs');
+
+    const { store: importStore, configPath } = await createStore(baseState(), 'C:\\legacy-id-import');
+    const importUri = uri('C:\\imports\\legacy-project-ids.json');
+    putJson(importUri.fsPath, { projects: legacyProjects });
+    await importStore.importFromFile(importUri);
+    const importedIds = importStore.state.projects.map(project => project.id);
+    assert.strictEqual(importStore.state.projects.length, legacyProjects.length, 'legacy repair preserves every project');
+    assert.strictEqual(importedIds[0], 'legacy-id');
+    assert.ok(importedIds.every(id => typeof id === 'string' && id.trim().length > 0));
+    assert.strictEqual(new Set(importedIds).size, importedIds.length, 'legacy import repairs duplicate/missing IDs');
+    assert.deepStrictEqual(readJson(configPath).projects.map(project => project.id), importedIds);
+    await importStore.reload();
+    assert.deepStrictEqual(
+      importStore.state.projects.map(project => project.id),
+      importedIds,
+      'persisted repaired IDs remain deterministic on reload'
+    );
+  }
+
+  {
     const { store } = await createStore(baseState());
     await store.addSshHost({ id: 'host-a', name: 'Host A', hostname: 'old.example.com', username: 'dev' });
     await store.upsertProject({
@@ -389,11 +531,77 @@ async function expectReject(action, pattern) {
       [['a', 'target', '/srv/a'], ['b', 'source', '/srv/b'], ['target-project', 'target', '/srv/t']]
     );
     assert.strictEqual(store.state.projects[0].path, 'ops@target.example.com:/srv/a');
+    const beforeDuplicateSelection = JSON.parse(JSON.stringify(store.state));
+    await expectReject(
+      () => store.migrateSshHostProjects('source', 'target', ['b', 'b']),
+      /duplicate selected project id.*b/i
+    );
+    assert.deepStrictEqual(store.state, beforeDuplicateSelection, 'duplicate migration selections are atomic');
     await expectReject(() => store.migrateSshHostProjects('source', 'target', ['target-project']), /does not belong.*source/i);
     await expectReject(() => store.migrateSshHostProjects('source', 'missing'), /target.*not found/i);
     await store.migrateSshHostProjects('source', 'target');
     assert.strictEqual(store.state.projects.find(project => project.id === 'b').sshHostId, 'target');
     assert.strictEqual(store.state.projects.find(project => project.id === 'b').remotePath, '/srv/b');
+  }
+
+  {
+    const hosts = [
+      { id: 'source', name: 'Source', hostname: 'source.example.com' },
+      { id: 'target', name: 'Target', hostname: 'target.example.com' }
+    ];
+    const { store } = await createStore(baseState([
+      { id: 'dup', name: 'Captured', path: 'old', type: 'ssh', sshHostId: 'source', remotePath: '/captured' },
+      { id: 'existing', name: 'Existing', path: 'old', type: 'ssh', sshHostId: 'source', remotePath: '/existing' }
+    ], hosts));
+    const capturedIds = ['dup'];
+    await expectReject(
+      () => store.addProject({
+        id: 'dup',
+        name: 'Duplicate Attempt',
+        path: 'old',
+        type: 'ssh',
+        sshHostId: 'source',
+        remotePath: '/duplicate'
+      }),
+      /duplicate project id.*dup/i
+    );
+    await store.addProject({
+      id: 'newly-linked',
+      name: 'Newly Linked',
+      path: 'old',
+      type: 'ssh',
+      sshHostId: 'source',
+      remotePath: '/newly-linked'
+    });
+    await store.migrateSshHostProjects('source', 'target', capturedIds);
+    assert.deepStrictEqual(
+      store.state.projects.map(project => [project.id, project.sshHostId]),
+      [['dup', 'target'], ['existing', 'source'], ['newly-linked', 'source']],
+      'migration moves exactly the IDs captured before confirmation'
+    );
+  }
+
+  {
+    const hosts = [
+      { id: 'source', name: 'Source', hostname: 'source.example.com' },
+      { id: 'target', name: 'Target', hostname: 'target.example.com' }
+    ];
+    const { store } = await createStore(baseState([
+      { id: 'ambiguous', name: 'One', path: 'old', type: 'ssh', sshHostId: 'source', remotePath: '/one' }
+    ], hosts));
+    store.state.projects.push({
+      id: 'ambiguous',
+      name: 'Corrupt Duplicate',
+      path: 'old',
+      type: 'ssh',
+      sshHostId: 'source',
+      remotePath: '/two'
+    });
+    await expectReject(
+      () => store.migrateSshHostProjects('source', 'target', ['ambiguous']),
+      /project ambiguous.*exactly one|not unique/i
+    );
+    assert.ok(store.state.projects.every(project => project.sshHostId === 'source'));
   }
 
   {
