@@ -55,10 +55,15 @@ assert.equal(model.countHostReferences(projects, 'alpha'), 3, 'counts every stor
 assert.equal(model.countHostReferences(projects, 'missing'), 0);
 
 assert.equal(model.formatSshHostAddress(hosts[0]), 'dev@10.1.2.3:2222');
+assert.equal(model.formatSshHostAddress(hosts[1]), 'qa.internal:default');
 assert.equal(
   model.formatSshHostAddress({ id: 'v6', name: 'IPv6', hostname: '2001:db8::1', port: 22 }),
   '[2001:db8::1]:22',
   'brackets an IPv6 hostname before appending a port'
+);
+assert.equal(
+  model.formatSshHostAddress({ id: 'v6-default', name: 'IPv6 default', hostname: '2001:db8::2' }),
+  '[2001:db8::2]:default'
 );
 
 assert.equal(model.validateSshHostDraft({ name: '', hostname: 'example.com', username: '', port: '' }, hosts), 'Host name is required.');
@@ -121,5 +126,49 @@ assert.equal(
   'C:/repo'
 );
 assert.equal(model.extractRemotePathForManagedProject('not-an-ssh-path'), null);
+
+const legacyProject = {
+  id: 'legacy-ssh',
+  name: 'Legacy SSH',
+  type: 'ssh',
+  path: 'dev@example.com:/srv/legacy'
+};
+const conversionDraft = model.createManagedSshConversionDraft(legacyProject);
+assert.deepEqual(conversionDraft, {
+  ...legacyProject,
+  remotePath: '/srv/legacy'
+});
+assert.equal(conversionDraft.path, legacyProject.path, 'conversion preserves the legacy compatibility path');
+
+const incompleteConversion = model.updateManagedProjectFields(
+  conversionDraft,
+  '',
+  '/srv/updated',
+  hosts
+);
+assert.equal(incompleteConversion.path, legacyProject.path, 'incomplete managed fields keep the original path snapshot');
+assert.equal(incompleteConversion.remotePath, '/srv/updated');
+
+const completeConversion = model.updateManagedProjectFields(
+  incompleteConversion,
+  'beta',
+  '/srv/updated',
+  hosts
+);
+assert.equal(completeConversion.sshHostId, 'beta');
+assert.equal(completeConversion.remotePath, '/srv/updated');
+assert.match(completeConversion.path, /^vscode-remote:\/\/ssh-remote\+[0-9a-f]+\/srv\/updated$/);
+
+const malformedConversion = model.createManagedSshConversionDraft({
+  ...legacyProject,
+  path: 'unparseable legacy value'
+});
+assert.equal(malformedConversion.path, 'unparseable legacy value');
+assert.equal(malformedConversion.remotePath, '');
+
+const warningA = [{ projectId: 'one', projectName: 'One', message: 'Needs migration' }];
+const warningB = [{ projectId: 'one', projectName: 'One', message: 'Changed warning' }];
+assert.equal(model.getMigrationWarningSignature([]), '');
+assert.notEqual(model.getMigrationWarningSignature(warningA), model.getMigrationWarningSignature(warningB));
 
 console.log('sshHostManagerModel tests passed');

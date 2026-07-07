@@ -11,9 +11,12 @@ import type {
   UISettings
 } from './model';
 import {
-  buildManagedProjectPath,
+  createManagedSshConversionDraft,
   extractRemotePathForManagedProject,
+  formatSshHostAddress,
+  getMigrationWarningSignature,
   normalizeUiState,
+  updateManagedProjectFields,
   validateManagedProjectFields
 } from './sshHostManagerModel';
 
@@ -476,7 +479,18 @@ export default function App() {
   const [sshHostOperationResult, setSshHostOperationResult] = useState<SshHostOperationResult | null>(null);
   const [sshHostTestResult, setSshHostTestResult] = useState<SshHostTestResult | null>(null);
   const [warningProject, setWarningProject] = useState<ProjectItem | null>(null);
+  const [dismissedMigrationWarningSignature, setDismissedMigrationWarningSignature] = useState<string | null>(null);
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
+  const migrationWarningSignature = useMemo(
+    () => getMigrationWarningSignature(state.migrationWarnings),
+    [state.migrationWarnings]
+  );
+
+  useEffect(() => {
+    if (!migrationWarningSignature) {
+      setDismissedMigrationWarningSignature(null);
+    }
+  }, [migrationWarningSignature]);
 
   useEffect(() => {
     console.log('Project Pilot: Setting up message listener');
@@ -728,6 +742,11 @@ export default function App() {
     setSshHostOperationResult(null);
     setSshHostTestResult(null);
     setShowSshHostManager(true);
+  };
+  const closeSshHostManager = () => {
+    setShowSshHostManager(false);
+    setSshHostOperationResult(null);
+    setSshHostTestResult(null);
   };
 
   const isNarrowWindow = windowWidth < 760;
@@ -1187,7 +1206,7 @@ export default function App() {
         )}
       </div>
 
-      {state.migrationWarnings.length > 0 && (
+      {migrationWarningSignature && dismissedMigrationWarningSignature !== migrationWarningSignature && (
         <div
           className="glass-panel rounded-2xl border p-3 sm:p-4"
           style={{
@@ -1203,9 +1222,24 @@ export default function App() {
                 Review these projects and assign a reusable SSH Host when ready.
               </p>
             </div>
-            <span className="stat-chip px-2.5 py-1 rounded-full text-xs" style={{ color: '#f59e0b' }}>
-              {state.migrationWarnings.length} warning{state.migrationWarnings.length === 1 ? '' : 's'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="stat-chip px-2.5 py-1 rounded-full text-xs" style={{ color: '#f59e0b' }}>
+                {state.migrationWarnings.length} warning{state.migrationWarnings.length === 1 ? '' : 's'}
+              </span>
+              <button
+                className="soft-button w-8 h-8 rounded-xl inline-flex items-center justify-center"
+                style={{
+                  backgroundColor: secondaryPanelBackground,
+                  color: theme.inputForeground,
+                  borderColor: toAlpha('#f59e0b', 0.3)
+                }}
+                onClick={() => setDismissedMigrationWarningSignature(migrationWarningSignature)}
+                title="Dismiss migration warnings for this session"
+                aria-label="Dismiss migration warnings"
+              >
+                ×
+              </button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
             {state.migrationWarnings.map((warning, index) => {
@@ -1418,7 +1452,7 @@ export default function App() {
             }
             vscode.postMessage(message);
           }}
-          onClose={() => setShowSshHostManager(false)}
+          onClose={closeSshHostManager}
         />
       )}
     </div>
@@ -1910,25 +1944,32 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
   const [remoteStatus, setRemoteStatus] = useState<CurrentRemoteStatus | null>(null);
   const [sshResolution, setSshResolution] = useState<SshResolution | null>(null);
   const [isResolvingSsh, setIsResolvingSsh] = useState(false);
+  const [isConvertingLegacySsh, setIsConvertingLegacySsh] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const sshResolveRequestRef = useRef(0);
+  const legacyConversionSnapshotRef = useRef<ProjectItem | null>(null);
   const usesManagedSshFields = isSshProjectType(editedProject.type) && (
     isNewProject
+    || isConvertingLegacySsh
     || !isSshProjectType(project.type)
     || project.sshHostId !== undefined
     || project.remotePath !== undefined
   );
   const applyManagedSshFields = useCallback((sshHostId: string, remotePath: string) => {
-    setEditedProject(prev => {
-      const host = sshHosts.find(candidate => candidate.id === sshHostId);
-      return {
-        ...prev,
-        sshHostId: sshHostId || undefined,
-        remotePath,
-        path: host && remotePath.trim() ? buildManagedProjectPath(host, remotePath) : ''
-      };
-    });
+    setEditedProject(prev => updateManagedProjectFields(prev, sshHostId, remotePath, sshHosts));
   }, [sshHosts]);
+  const beginLegacySshConversion = useCallback(() => {
+    legacyConversionSnapshotRef.current = { ...editedProject };
+    setEditedProject(createManagedSshConversionDraft(editedProject));
+    setIsConvertingLegacySsh(true);
+  }, [editedProject]);
+  const cancelLegacySshConversion = useCallback(() => {
+    if (legacyConversionSnapshotRef.current) {
+      setEditedProject(legacyConversionSnapshotRef.current);
+    }
+    legacyConversionSnapshotRef.current = null;
+    setIsConvertingLegacySsh(false);
+  }, []);
   const pathAnalysis = useMemo(
     () => analyzeProjectPath(editedProject.path, editedProject.type),
     [editedProject.path, editedProject.type]
@@ -1971,14 +2012,13 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
       const managedRemotePath = usesManagedSshFields && isSshProjectType(nextType)
         ? extractRemotePathForManagedProject(nextPath)
         : null;
-      const selectedHost = sshHosts.find(candidate => candidate.id === prev.sshHostId);
       const nextProject = managedRemotePath
-        ? {
-          ...prev,
-          path: selectedHost ? buildManagedProjectPath(selectedHost, managedRemotePath) : '',
-          remotePath: managedRemotePath,
-          type: nextType
-        }
+        ? updateManagedProjectFields(
+          { ...prev, type: nextType },
+          prev.sshHostId ?? '',
+          managedRemotePath,
+          sshHosts
+        )
         : { ...prev, path: nextPath, type: nextType };
       const nextName = suggestedName || analysis?.suggestedName;
 
@@ -2375,7 +2415,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
                     <option value="" style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>Select an SSH Host</option>
                     {sshHosts.map(host => (
                       <option key={host.id} value={host.id} style={{ backgroundColor: theme.inputBackground, color: theme.inputForeground }}>
-                        {host.name} · {host.username ? `${host.username}@` : ''}{host.hostname}{host.port ? `:${host.port}` : ''}
+                        {host.name} · {formatSshHostAddress(host)}
                       </option>
                     ))}
                   </select>
@@ -2387,6 +2427,16 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
                   >
                     + New Host
                   </button>
+                  {isConvertingLegacySsh && (
+                    <button
+                      className="soft-button px-3 py-2.5 border rounded-xl transition-colors text-sm whitespace-nowrap"
+                      style={modalSecondaryButtonStyle}
+                      onClick={cancelLegacySshConversion}
+                      title="Return to the original full SSH path"
+                    >
+                      Use legacy path
+                    </button>
+                  )}
                 </div>
                 {sshHosts.length === 0 && (
                   <p className="text-xs mt-1.5" style={{ color: '#f59e0b' }}>Create an SSH Host before saving this project.</p>
@@ -2486,6 +2536,27 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
                 </div>
               )}
             </div>
+            {isSshProjectType(editedProject.type) && !usesManagedSshFields && (
+              <div
+                className="glass-card rounded-xl px-3 py-2.5 text-xs mt-2 flex items-center justify-between gap-3 flex-wrap"
+                style={{
+                  backgroundColor: toAlpha(theme.focusBorder, 0.08),
+                  borderColor: toAlpha(theme.focusBorder, 0.2),
+                  color: theme.foreground
+                }}
+              >
+                <span style={{ color: toAlpha(theme.foreground, 0.72) }}>
+                  Link this legacy project to a reusable Host while keeping its current path until the new fields are complete.
+                </span>
+                <button
+                  className="soft-button px-3 py-1.5 rounded-xl text-xs whitespace-nowrap"
+                  style={modalSecondaryButtonStyle}
+                  onClick={beginLegacySshConversion}
+                >
+                  Use reusable Host
+                </button>
+              </div>
+            )}
             {pathAnalysis && (
               <div
                 className="glass-card rounded-xl px-3 py-2 text-xs mt-2 flex items-start justify-between gap-3"
@@ -2634,6 +2705,10 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
               value={editedProject.type}
               onChange={e => {
                 const nextType = e.target.value as ProjectType;
+                if (!isSshProjectType(nextType)) {
+                  legacyConversionSnapshotRef.current = null;
+                  setIsConvertingLegacySsh(false);
+                }
                 setEditedProject(prev => {
                   if (!isSshProjectType(nextType)) {
                     const { sshHostId: _sshHostId, remotePath: _remotePath, ...localProject } = prev;

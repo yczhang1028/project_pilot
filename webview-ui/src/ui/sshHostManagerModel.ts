@@ -1,4 +1,11 @@
-import type { ProjectItem, ProjectType, SshHost, SshHostDraft, State } from './model';
+import type {
+  ProjectItem,
+  ProjectType,
+  SshHost,
+  SshHostDraft,
+  SshMigrationWarning,
+  State
+} from './model';
 
 const isSshType = (type: ProjectType): boolean => type === 'ssh' || type === 'ssh-workspace';
 
@@ -14,10 +21,10 @@ export function countHostReferences(projects: readonly ProjectItem[], hostId: st
 
 export function formatSshHostAddress(host: Pick<SshHost, 'hostname' | 'username' | 'port'>): string {
   const hostname = host.hostname.trim();
-  const displayHostname = host.port !== undefined && hostname.includes(':') && !hostname.startsWith('[')
+  const displayHostname = hostname.includes(':') && !hostname.startsWith('[')
     ? `[${hostname}]`
     : hostname;
-  return `${host.username?.trim() ? `${host.username.trim()}@` : ''}${displayHostname}${host.port !== undefined ? `:${host.port}` : ''}`;
+  return `${host.username?.trim() ? `${host.username.trim()}@` : ''}${displayHostname}:${host.port ?? 'default'}`;
 }
 
 export function validateSshHostDraft(
@@ -140,4 +147,38 @@ export function extractRemotePathForManagedProject(value: string): string | null
   const authority = trimmed.slice(0, separatorIndex).trim();
   const remotePath = trimmed.slice(separatorIndex + 1).trim();
   return authority && remotePath ? remotePath : null;
+}
+
+export function createManagedSshConversionDraft(project: ProjectItem): ProjectItem {
+  const { sshHostId: _sshHostId, remotePath: _remotePath, ...legacyProject } = project;
+  return {
+    ...legacyProject,
+    remotePath: extractRemotePathForManagedProject(project.path) ?? ''
+  };
+}
+
+export function updateManagedProjectFields(
+  project: ProjectItem,
+  sshHostId: string,
+  remotePath: string,
+  hosts: readonly SshHost[]
+): ProjectItem {
+  const host = hosts.find(candidate => candidate.id === sshHostId);
+  return {
+    ...project,
+    sshHostId: sshHostId || undefined,
+    remotePath,
+    path: host && remotePath.trim()
+      ? buildManagedProjectPath(host, remotePath)
+      : project.path
+  };
+}
+
+export function getMigrationWarningSignature(warnings: readonly SshMigrationWarning[]): string {
+  if (!warnings.length) {
+    return '';
+  }
+  return JSON.stringify(warnings
+    .map(warning => [warning.projectId ?? null, warning.projectName, warning.message])
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))));
 }
