@@ -1,15 +1,18 @@
 import * as vscode from 'vscode';
 import { extractHostnameFromSshPath } from './sshPath';
+import { buildHostBuckets, type SshHost } from './sshHosts';
 import { ConfigStore, ProjectItem } from './store';
 
-export type OutlineMode = 'group' | 'target' | 'type' | 'flat';
+export type OutlineMode = 'group' | 'host' | 'type' | 'flat';
 
-interface OutlineNode {
+export interface OutlineNode {
   id: string;
-  type: 'section' | 'group' | 'project';
+  type: 'section' | 'group' | 'host' | 'project';
   label: string;
   project?: ProjectItem;
   groupName?: string;
+  hostId?: string;
+  host?: SshHost;
   description?: string;
   tooltip?: string;
   icon?: string;
@@ -19,7 +22,7 @@ interface OutlineNode {
 }
 
 const OUTLINE_EXPANSION_KEY = 'projectPilot.outlineExpansionState';
-const OUTLINE_MODE_ORDER: OutlineMode[] = ['group', 'target', 'type', 'flat'];
+const OUTLINE_MODE_ORDER: OutlineMode[] = ['group', 'host', 'type', 'flat'];
 
 export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode> {
   private _onDidChangeTreeData = new vscode.EventEmitter<OutlineNode | undefined | null | void>();
@@ -47,7 +50,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   getModeLabel(): string {
     const labels: Record<OutlineMode, string> = {
       group: 'By Group',
-      target: 'By Target',
+      host: 'By Host',
       type: 'By Type',
       flat: 'Flat'
     };
@@ -78,6 +81,25 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   getTreeItem(element: OutlineNode): vscode.TreeItem {
     if (element.type === 'project') {
       return this.getProjectTreeItem(element);
+    }
+
+    if (element.type === 'host') {
+      const item = new vscode.TreeItem(
+        element.label,
+        element.children?.length
+          ? this.getCollapsibleState(element.id, true)
+          : vscode.TreeItemCollapsibleState.None
+      );
+      item.id = element.id;
+      item.description = element.description;
+      item.tooltip = element.tooltip;
+      item.iconPath = new vscode.ThemeIcon(element.icon || 'vm');
+      item.contextValue = [
+        'outline-host',
+        element.children?.length ? 'host-used' : 'host-unused',
+        `host-id:${element.hostId}`
+      ].join(',');
+      return item;
     }
 
     const item = new vscode.TreeItem(
@@ -179,8 +201,8 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     switch (this.outlineMode) {
       case 'group':
         return this.buildGroupedNodes(project => project.group || 'Ungrouped');
-      case 'target':
-        return this.buildGroupedNodes(project => this.getProjectTarget(project));
+      case 'host':
+        return this.buildHostNodes();
       case 'type':
         return this.buildGroupedNodes(project => this.getProjectTypeLabel(project.type));
       case 'flat':
@@ -215,6 +237,55 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
       }));
   }
 
+  private buildHostNodes(): OutlineNode[] {
+    return buildHostBuckets(this.store.state.projects, this.store.state.sshHosts).map(bucket => {
+      const projects = this.sortProjects(bucket.projects);
+      const projectCount = projects.length;
+      const children = projects.map(project => this.buildProjectNode(
+        project,
+        bucket.hostId ? `host:${bucket.hostId}` : `host:${bucket.name}`
+      ));
+
+      if (bucket.host) {
+        const connection = bucket.host.username
+          ? `${bucket.host.username}@${bucket.host.hostname}`
+          : bucket.host.hostname;
+        const linkedLabel = `${projectCount} linked project${projectCount === 1 ? '' : 's'}`;
+        const projectNames = projectCount > 0
+          ? `Projects: ${projects.map(project => project.name).join(', ')}`
+          : 'Projects: None';
+        return {
+          id: `host:${bucket.host.id}`,
+          type: 'host',
+          label: bucket.host.name,
+          hostId: bucket.host.id,
+          host: bucket.host,
+          description: `${projectCount} project${projectCount === 1 ? '' : 's'}`,
+          tooltip: [
+            `Connection: ${connection}`,
+            `Port: ${bucket.host.port ?? 'SSH config/default'}`,
+            linkedLabel,
+            projectNames
+          ].join('\n'),
+          icon: 'vm',
+          children
+        } satisfies OutlineNode;
+      }
+
+      return {
+        id: bucket.local ? 'group:host:local' : 'group:host:unmanaged',
+        type: 'group',
+        label: bucket.name,
+        groupName: bucket.name,
+        description: `${projectCount} project${projectCount === 1 ? '' : 's'}`,
+        tooltip: `${bucket.name}\nProjects: ${projectCount}`,
+        icon: bucket.unmanaged ? 'vm' : 'folder',
+        iconColor: bucket.unmanaged ? 'charts.orange' : 'charts.blue',
+        children
+      } satisfies OutlineNode;
+    });
+  }
+
   private buildProjectNode(project: ProjectItem, parentKey: string): OutlineNode {
     return {
       id: `project:${parentKey}:${project.id ?? project.path}`,
@@ -242,7 +313,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     switch (this.outlineMode) {
       case 'group':
         return shortPath;
-      case 'target':
+      case 'host':
         return `${this.getProjectTypeLabel(project.type)} • ${shortPath}`;
       case 'type':
         return `${project.group || 'Ungrouped'} • ${shortPath}`;
@@ -309,18 +380,6 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     return contexts.join(',');
   }
 
-  private getProjectTarget(project: ProjectItem): string {
-    if (project.type === 'local') {
-      return 'Local Folders';
-    }
-    if (project.type === 'workspace') {
-      return 'Workspace Files';
-    }
-
-    const host = extractHostnameFromSshPath(project.path);
-    return host ? `SSH • ${host}` : 'SSH • Remote';
-  }
-
   private getProjectTypeLabel(type: ProjectItem['type']): string {
     const labels: Record<ProjectItem['type'], string> = {
       local: 'Local Folder',
@@ -334,7 +393,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   private getModeRootLabel(): string {
     const labels: Record<Exclude<OutlineMode, 'flat'>, string> = {
       group: 'All Projects',
-      target: 'Targets',
+      host: 'All Projects',
       type: 'Project Types'
     };
     return labels[this.outlineMode as Exclude<OutlineMode, 'flat'>] || 'All Projects';
@@ -343,16 +402,13 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   private getModeRootIcon(): string {
     const icons: Record<Exclude<OutlineMode, 'flat'>, string> = {
       group: 'folder-library',
-      target: 'radio-tower',
+      host: 'server',
       type: 'symbol-class'
     };
     return icons[this.outlineMode as Exclude<OutlineMode, 'flat'>] || 'folder-library';
   }
 
   private getGroupDescription(groupName: string, projects: ProjectItem[]): string {
-    if (this.outlineMode === 'target') {
-      return `${projects.length} project${projects.length === 1 ? '' : 's'} on ${groupName}`;
-    }
     if (this.outlineMode === 'type') {
       return `${projects.length} ${groupName.toLowerCase()}`;
     }
@@ -360,9 +416,6 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   }
 
   private getGroupIcon(groupName: string): string {
-    if (this.outlineMode === 'target' && groupName.startsWith('SSH')) {
-      return 'vm';
-    }
     if (this.outlineMode === 'type') {
       if (groupName.includes('Workspace')) return 'root-folder';
       if (groupName.includes('SSH')) return 'vm';
@@ -371,9 +424,6 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
   }
 
   private getGroupIconColor(groupName: string): string | undefined {
-    if (this.outlineMode === 'target' && groupName.startsWith('SSH')) {
-      return 'charts.orange';
-    }
     if (groupName.includes('Workspace')) {
       return 'charts.green';
     }
@@ -411,12 +461,6 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
     if (left === 'Ungrouped') return 1;
     if (right === 'Ungrouped') return -1;
 
-    const leftIsSshIp = left.startsWith('SSH • ') && isIpAddress(left.replace('SSH • ', ''));
-    const rightIsSshIp = right.startsWith('SSH • ') && isIpAddress(right.replace('SSH • ', ''));
-    if (leftIsSshIp !== rightIsSshIp) {
-      return leftIsSshIp ? 1 : -1;
-    }
-
     return left.localeCompare(right);
   }
 }
@@ -444,8 +488,4 @@ function tailSegments(input: string): string {
     return normalized;
   }
   return segments.slice(-2).join('/');
-}
-
-function isIpAddress(value: string): boolean {
-  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value);
 }

@@ -205,6 +205,30 @@
         "icon": "$(edit)"
       },
       {
+        "command": "projectPilot.editSshHostFromOutline",
+        "title": "Edit SSH Host",
+        "category": "Project Pilot",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "projectPilot.testSshHostFromOutline",
+        "title": "Test SSH Host",
+        "category": "Project Pilot",
+        "icon": "$(debug-disconnect)"
+      },
+      {
+        "command": "projectPilot.migrateSshHostProjects",
+        "title": "Migrate Projects to Another Host",
+        "category": "Project Pilot",
+        "icon": "$(replace-all)"
+      },
+      {
+        "command": "projectPilot.deleteSshHostFromOutline",
+        "title": "Delete SSH Host",
+        "category": "Project Pilot",
+        "icon": "$(trash)"
+      },
+      {
         "command": "projectPilot.testSshConnectionFromOutline",
         "title": "Test SSH Connection",
         "category": "Project Pilot",
@@ -322,6 +346,26 @@
           "when": "view == projectPilot.outline && viewItem =~ /outline-group/ && viewItem =~ /mode:group/",
           "command": "projectPilot.renameOutlineGroup",
           "group": "organization@2"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-host/",
+          "command": "projectPilot.editSshHostFromOutline",
+          "group": "remote@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /outline-host/",
+          "command": "projectPilot.testSshHostFromOutline",
+          "group": "remote@2"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /host-used/",
+          "command": "projectPilot.migrateSshHostProjects",
+          "group": "organization@1"
+        },
+        {
+          "when": "view == projectPilot.outline && viewItem =~ /host-unused/",
+          "command": "projectPilot.deleteSshHostFromOutline",
+          "group": "danger@1"
         }
       ],
       "commandPalette": [
@@ -434,6 +478,22 @@
           "when": "false"
         },
         {
+          "command": "projectPilot.editSshHostFromOutline",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.testSshHostFromOutline",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.migrateSshHostProjects",
+          "when": "false"
+        },
+        {
+          "command": "projectPilot.deleteSshHostFromOutline",
+          "when": "false"
+        },
+        {
           "command": "projectPilot.testSshConnectionFromOutline",
           "when": "false"
         }
@@ -505,6 +565,7 @@
     "build": "npm run build:webview && npm run build:ext",
     "build:ext": "tsc -p .",
     "build:webview": "cd webview-ui && npm install && npm run build",
+    "test:outline": "npm run build:ext && node test/outlineTreeProvider.test.js",
     "test:sshPath": "npm run build:ext && node test/sshPath.test.js",
     "test:sshHosts": "npm run build:ext && node test/sshHosts.test.js",
     "test:sshHostMessages": "npm run build:ext && node test/sshHostMessages.test.js",

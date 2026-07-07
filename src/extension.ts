@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ManagerViewProvider } from './managerViewProvider';
-import { OutlineMode, OutlineTreeProvider } from './outlineTreeProvider';
+import { OutlineMode, OutlineNode, OutlineTreeProvider } from './outlineTreeProvider';
 import { getCurrentRemoteStatus } from './remoteContext';
 import { handleSshHostMessage } from './sshHostMessages';
 import { ConfigStore, ProjectItem, ProjectType } from './store';
@@ -13,7 +13,7 @@ import {
   normalizeSelectedProjectUri,
   type NormalizedProjectSelection
 } from './projectPath';
-import { resolveSshTarget } from './sshResolve';
+import { resolveSshTarget, testSshHostConnection } from './sshResolve';
 import {
   buildRemoteSshUri,
   extractHostnameFromSshPath,
@@ -692,6 +692,210 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       vscode.window.showInformationMessage(`Renamed group "${item.groupName}" to "${nextGroupName.trim()}"`);
+    }),
+    vscode.commands.registerCommand('projectPilot.editSshHostFromOutline', async (item?: OutlineNode) => {
+      if (item?.type !== 'host' || !item.hostId) {
+        return;
+      }
+
+      const host = store.state.sshHosts.find(candidate => candidate.id === item.hostId);
+      if (!host) {
+        vscode.window.showErrorMessage('SSH Host was not found');
+        return;
+      }
+
+      const name = await vscode.window.showInputBox({
+        prompt: 'SSH Host name',
+        value: host.name,
+        validateInput: value => value.trim() ? undefined : 'Host name cannot be empty'
+      });
+      if (name === undefined) {
+        return;
+      }
+
+      const hostname = await vscode.window.showInputBox({
+        prompt: 'Hostname or IP address',
+        value: host.hostname,
+        validateInput: value => value.trim() ? undefined : 'Hostname cannot be empty'
+      });
+      if (hostname === undefined) {
+        return;
+      }
+
+      const username = await vscode.window.showInputBox({
+        prompt: 'Username (optional)',
+        value: host.username ?? ''
+      });
+      if (username === undefined) {
+        return;
+      }
+
+      const port = await vscode.window.showInputBox({
+        prompt: 'Port (optional)',
+        value: host.port?.toString() ?? '',
+        validateInput: value => {
+          const trimmed = value.trim();
+          if (!trimmed) {
+            return undefined;
+          }
+          if (!/^\d+$/.test(trimmed)) {
+            return 'Port must be an integer from 1 to 65535';
+          }
+          const number = Number(trimmed);
+          return number >= 1 && number <= 65535
+            ? undefined
+            : 'Port must be an integer from 1 to 65535';
+        }
+      });
+      if (port === undefined) {
+        return;
+      }
+
+      try {
+        await store.updateSshHost({
+          ...host,
+          name: name.trim(),
+          hostname: hostname.trim(),
+          username: username.trim() || undefined,
+          port: port.trim() ? Number(port.trim()) : undefined
+        });
+        vscode.window.showInformationMessage(`Updated SSH Host "${name.trim()}"`);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to update SSH Host: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+    vscode.commands.registerCommand('projectPilot.testSshHostFromOutline', async (item?: OutlineNode) => {
+      if (item?.type !== 'host' || !item.hostId) {
+        return;
+      }
+
+      const host = store.state.sshHosts.find(candidate => candidate.id === item.hostId);
+      if (!host) {
+        vscode.window.showErrorMessage('SSH Host was not found');
+        return;
+      }
+
+      try {
+        const result = await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Testing SSH Host "${host.name}"`,
+            cancellable: false
+          },
+          async progress => {
+            progress.report({ message: `Connecting to ${host.hostname}...` });
+            return testSshHostConnection(host);
+          }
+        );
+
+        if (result.success) {
+          vscode.window.showInformationMessage(`SSH connection to "${host.name}" succeeded`);
+          return;
+        }
+
+        vscode.window.showErrorMessage(
+          `Failed to connect to SSH Host "${host.name}". Check the connection settings and try again.`
+        );
+      } catch {
+        vscode.window.showErrorMessage(
+          `Failed to connect to SSH Host "${host.name}". Check the connection settings and try again.`
+        );
+      }
+    }),
+    vscode.commands.registerCommand('projectPilot.migrateSshHostProjects', async (item?: OutlineNode) => {
+      if (item?.type !== 'host' || !item.hostId) {
+        return;
+      }
+
+      const source = store.state.sshHosts.find(candidate => candidate.id === item.hostId);
+      if (!source) {
+        vscode.window.showErrorMessage('Source SSH Host was not found');
+        return;
+      }
+
+      const linkedProjects = store.state.projects.filter(project => project.sshHostId === source.id);
+      if (linkedProjects.length === 0) {
+        vscode.window.showInformationMessage(`SSH Host "${source.name}" has no linked projects to migrate`);
+        return;
+      }
+
+      const targets = store.state.sshHosts
+        .filter(candidate => candidate.id !== source.id)
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map(host => ({
+          label: host.name,
+          description: `${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? `:${host.port}` : ''}`,
+          host
+        }));
+      if (targets.length === 0) {
+        vscode.window.showInformationMessage('Add another SSH Host before migrating projects');
+        return;
+      }
+
+      const selected = await vscode.window.showQuickPick(targets, {
+        placeHolder: `Migrate projects from "${source.name}" to another Host`
+      });
+      if (!selected) {
+        return;
+      }
+
+      const count = linkedProjects.length;
+      const confirm = await vscode.window.showWarningMessage(
+        `Migrate ${count} project${count === 1 ? '' : 's'} from "${source.name}" to "${selected.host.name}"?`,
+        { modal: true },
+        'Migrate'
+      );
+      if (confirm !== 'Migrate') {
+        return;
+      }
+
+      try {
+        await store.migrateSshHostProjects(source.id, selected.host.id);
+        vscode.window.showInformationMessage(
+          `Migrated ${count} project${count === 1 ? '' : 's'} from "${source.name}" to "${selected.host.name}"`
+        );
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to migrate SSH Host projects: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }),
+    vscode.commands.registerCommand('projectPilot.deleteSshHostFromOutline', async (item?: OutlineNode) => {
+      if (item?.type !== 'host' || !item.hostId) {
+        return;
+      }
+
+      const host = store.state.sshHosts.find(candidate => candidate.id === item.hostId);
+      if (!host) {
+        vscode.window.showErrorMessage('SSH Host was not found');
+        return;
+      }
+
+      const linkedProjects = store.state.projects.filter(project => project.sshHostId === host.id);
+      if (linkedProjects.length > 0) {
+        vscode.window.showErrorMessage(
+          `Cannot delete SSH Host "${host.name}" because it has ${linkedProjects.length} linked project${linkedProjects.length === 1 ? '' : 's'}`
+        );
+        return;
+      }
+
+      const confirm = await vscode.window.showWarningMessage(
+        `Delete unused SSH Host "${host.name}"?`,
+        { modal: true },
+        'Delete'
+      );
+      if (confirm !== 'Delete') {
+        return;
+      }
+
+      try {
+        await store.deleteSshHost(host.id);
+        vscode.window.showInformationMessage(`Deleted SSH Host "${host.name}"`);
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to delete SSH Host: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }),
     vscode.commands.registerCommand('projectPilot.testSshConnectionFromOutline', async (item?: any) => {
       if (!item?.project) {
