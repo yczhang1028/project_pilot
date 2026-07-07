@@ -348,22 +348,22 @@
           "group": "organization@2"
         },
         {
-          "when": "view == projectPilot.outline && viewItem =~ /outline-host/",
+          "when": "view == projectPilot.outline && viewItem =~ /^outline-host-(used|unused)$/",
           "command": "projectPilot.editSshHostFromOutline",
           "group": "remote@1"
         },
         {
-          "when": "view == projectPilot.outline && viewItem =~ /outline-host/",
+          "when": "view == projectPilot.outline && viewItem =~ /^outline-host-(used|unused)$/",
           "command": "projectPilot.testSshHostFromOutline",
           "group": "remote@2"
         },
         {
-          "when": "view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-used/",
+          "when": "view == projectPilot.outline && viewItem == outline-host-used",
           "command": "projectPilot.migrateSshHostProjects",
           "group": "organization@1"
         },
         {
-          "when": "view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-unused/",
+          "when": "view == projectPilot.outline && viewItem == outline-host-unused",
           "command": "projectPilot.deleteSshHostFromOutline",
           "group": "danger@1"
         }
@@ -565,7 +565,7 @@
     "build": "npm run build:webview && npm run build:ext",
     "build:ext": "tsc -p .",
     "build:webview": "cd webview-ui && npm install && npm run build",
-    "test:outline": "npm run build:ext && node test/outlineTreeProvider.test.js",
+    "test:outline": "npm run build:ext && node test/outlineTreeProvider.test.js && node test/outlineHostActions.test.js",
     "test:sshPath": "npm run build:ext && node test/sshPath.test.js",
     "test:sshHosts": "npm run build:ext && node test/sshHosts.test.js",
     "test:sshHostMessages": "npm run build:ext && node test/sshHostMessages.test.js",

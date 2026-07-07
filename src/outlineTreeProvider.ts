@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { sanitizeDisplayText } from './outlineHostActions';
 import { extractHostnameFromSshPath } from './sshPath';
 import { buildHostBuckets, type SshHost } from './sshHosts';
 import { ConfigStore, ProjectItem } from './store';
@@ -94,11 +95,9 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
       item.description = element.description;
       item.tooltip = element.tooltip;
       item.iconPath = new vscode.ThemeIcon(element.icon || 'vm');
-      item.contextValue = [
-        'outline-host',
-        element.children?.length ? 'host-used' : 'host-unused',
-        `host:${element.hostId}`
-      ].join(',');
+      item.contextValue = element.children?.length
+        ? 'outline-host-used'
+        : 'outline-host-unused';
       return item;
     }
 
@@ -129,7 +128,7 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
 
   async pickProject(): Promise<ProjectItem | undefined> {
     const items = this.sortProjects([...this.store.state.projects]).map((project) => ({
-      label: project.name,
+      label: displayText(project.name, 'Unnamed Project'),
       description: this.getProjectDescription(project),
       detail: this.getQuickPickDetail(project),
       value: project
@@ -222,42 +221,43 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
 
     return Array.from(groups.entries())
       .sort(([left], [right]) => this.sortGroupNames(left, right))
-      .map(([groupName, projects]) => ({
-        id: `group:${this.outlineMode}:${groupName}`,
-        type: 'group',
-        label: `${groupName} (${projects.length})`,
-        groupName,
-        description: this.getGroupDescription(groupName, projects),
-        tooltip: `Group: ${groupName}\nProjects: ${projects.length}`,
-        icon: this.getGroupIcon(groupName),
-        iconColor: this.getGroupIconColor(groupName),
-        children: this.sortProjects(projects).map(project =>
-          this.buildProjectNode(project, `${this.outlineMode}:${groupName}`)
-        )
-      }));
+      .map(([groupName, projects]) => {
+        const id = treeNodeId('group', this.outlineMode, groupName);
+        const displayGroupName = displayText(groupName, 'Unnamed Group');
+        return {
+          id,
+          type: 'group',
+          label: `${displayGroupName} (${projects.length})`,
+          groupName,
+          description: this.getGroupDescription(displayGroupName, projects),
+          tooltip: `Group: ${displayGroupName}\nProjects: ${projects.length}`,
+          icon: this.getGroupIcon(displayGroupName),
+          iconColor: this.getGroupIconColor(displayGroupName),
+          children: this.sortProjects(projects).map(project =>
+            this.buildProjectNode(project, id)
+          )
+        };
+      });
   }
 
   private buildHostNodes(): OutlineNode[] {
     return buildHostBuckets(this.store.state.projects, this.store.state.sshHosts).map(bucket => {
       const projects = this.sortProjects(bucket.projects);
       const projectCount = projects.length;
-      const children = projects.map(project => this.buildProjectNode(
-        project,
-        bucket.hostId ? `host:${bucket.hostId}` : `host:${bucket.name}`
-      ));
 
       if (bucket.host) {
-        const connection = bucket.host.username
-          ? `${bucket.host.username}@${bucket.host.hostname}`
-          : bucket.host.hostname;
+        const id = treeNodeId('host', bucket.host.id);
+        const hostname = displayText(bucket.host.hostname, 'Unknown hostname');
+        const username = bucket.host.username ? sanitizeDisplayText(bucket.host.username) : '';
+        const connection = username ? `${username}@${hostname}` : hostname;
         const linkedLabel = `${projectCount} linked project${projectCount === 1 ? '' : 's'}`;
         const projectNames = projectCount > 0
-          ? `Projects: ${projects.map(project => project.name).join(', ')}`
+          ? `Projects: ${projects.map(project => displayText(project.name, 'Unnamed Project')).join(', ')}`
           : 'Projects: None';
         return {
-          id: `host:${bucket.host.id}`,
+          id,
           type: 'host',
-          label: bucket.host.name,
+          label: displayText(bucket.host.name, 'Unnamed Host'),
           hostId: bucket.host.id,
           host: bucket.host,
           description: `${projectCount} project${projectCount === 1 ? '' : 's'}`,
@@ -268,12 +268,13 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
             projectNames
           ].join('\n'),
           icon: 'vm',
-          children
+          children: projects.map(project => this.buildProjectNode(project, id))
         } satisfies OutlineNode;
       }
 
+      const id = treeNodeId('group', 'host', bucket.local ? 'local' : 'unmanaged');
       return {
-        id: bucket.local ? 'group:host:local' : 'group:host:unmanaged',
+        id,
         type: 'group',
         label: bucket.name,
         groupName: bucket.name,
@@ -281,23 +282,23 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
         tooltip: `${bucket.name}\nProjects: ${projectCount}`,
         icon: bucket.unmanaged ? 'vm' : 'folder',
         iconColor: bucket.unmanaged ? 'charts.orange' : 'charts.blue',
-        children
+        children: projects.map(project => this.buildProjectNode(project, id))
       } satisfies OutlineNode;
     });
   }
 
   private buildProjectNode(project: ProjectItem, parentKey: string): OutlineNode {
     return {
-      id: `project:${parentKey}:${project.id ?? project.path}`,
+      id: treeNodeId('project', parentKey, project.id ?? project.path),
       type: 'project',
-      label: project.name,
+      label: displayText(project.name, 'Unnamed Project'),
       project
     };
   }
 
   private getProjectTreeItem(element: OutlineNode): vscode.TreeItem {
     const project = element.project!;
-    const item = new vscode.TreeItem(project.name, vscode.TreeItemCollapsibleState.None);
+    const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
     item.id = element.id;
     item.description = this.getProjectDescription(project);
     item.tooltip = this.getProjectTooltip(project);
@@ -309,37 +310,44 @@ export class OutlineTreeProvider implements vscode.TreeDataProvider<OutlineNode>
 
   private getProjectDescription(project: ProjectItem): string {
     const shortPath = shortenPath(project.path);
+    let description: string;
 
     switch (this.outlineMode) {
       case 'group':
-        return shortPath;
+        description = shortPath;
+        break;
       case 'host':
-        return `${this.getProjectTypeLabel(project.type)} • ${shortPath}`;
+        description = `${this.getProjectTypeLabel(project.type)} • ${shortPath}`;
+        break;
       case 'type':
-        return `${project.group || 'Ungrouped'} • ${shortPath}`;
+        description = `${project.group || 'Ungrouped'} • ${shortPath}`;
+        break;
       case 'flat':
-        return `${project.group || 'Ungrouped'} • ${shortPath}`;
+        description = `${project.group || 'Ungrouped'} • ${shortPath}`;
+        break;
     }
+
+    return sanitizeDisplayText(description);
   }
 
   private getQuickPickDetail(project: ProjectItem): string {
-    const detailParts = [this.getProjectTypeLabel(project.type), project.path];
+    const detailParts = [this.getProjectTypeLabel(project.type), sanitizeDisplayText(project.path)];
     if (project.group) {
-      detailParts.unshift(project.group);
+      detailParts.unshift(sanitizeDisplayText(project.group));
     }
     return detailParts.join(' • ');
   }
 
   private getProjectTooltip(project: ProjectItem): string {
-    const lines = [project.name];
+    const lines = [displayText(project.name, 'Unnamed Project')];
     if (project.isFavorite) lines[0] += ' ⭐';
-    if (project.description) lines.push(project.description);
+    if (project.description) lines.push(sanitizeDisplayText(project.description));
     lines.push('');
-    if (project.group) lines.push(`Group: ${project.group}`);
-    lines.push(`Path: ${project.path}`);
+    if (project.group) lines.push(`Group: ${sanitizeDisplayText(project.group)}`);
+    lines.push(`Path: ${sanitizeDisplayText(project.path)}`);
     lines.push(`Type: ${project.type}`);
     if (project.tags && project.tags.length > 0) {
-      lines.push(`Tags: ${project.tags.join(', ')}`);
+      lines.push(`Tags: ${project.tags.map(sanitizeDisplayText).join(', ')}`);
     }
     if (project.clickCount) {
       lines.push(`Accessed: ${project.clickCount} times`);
@@ -488,4 +496,12 @@ function tailSegments(input: string): string {
     return normalized;
   }
   return segments.slice(-2).join('/');
+}
+
+function treeNodeId(...parts: string[]): string {
+  return JSON.stringify(parts);
+}
+
+function displayText(value: string, fallback: string): string {
+  return sanitizeDisplayText(value) || fallback;
 }

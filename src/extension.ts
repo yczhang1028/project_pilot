@@ -2,6 +2,15 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ManagerViewProvider } from './managerViewProvider';
+import {
+  captureSshHostMigrationProjectIds,
+  displayHostName,
+  formatSshHostProbeFailure,
+  formatSshHostProgressTitle,
+  formatUnexpectedSshHostProbeFailure,
+  migrateCapturedSshHostProjects,
+  sanitizeDisplayText
+} from './outlineHostActions';
 import { OutlineMode, OutlineNode, OutlineTreeProvider } from './outlineTreeProvider';
 import { getCurrentRemoteStatus } from './remoteContext';
 import { handleSshHostMessage } from './sshHostMessages';
@@ -706,8 +715,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const name = await vscode.window.showInputBox({
         prompt: 'SSH Host name',
-        value: host.name,
-        validateInput: value => value.trim() ? undefined : 'Host name cannot be empty'
+        value: sanitizeDisplayText(host.name),
+        validateInput: value => sanitizeDisplayText(value) ? undefined : 'Host name cannot be empty'
       });
       if (name === undefined) {
         return;
@@ -715,8 +724,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const hostname = await vscode.window.showInputBox({
         prompt: 'Hostname or IP address',
-        value: host.hostname,
-        validateInput: value => value.trim() ? undefined : 'Hostname cannot be empty'
+        value: sanitizeDisplayText(host.hostname),
+        validateInput: value => sanitizeDisplayText(value) ? undefined : 'Hostname cannot be empty'
       });
       if (hostname === undefined) {
         return;
@@ -724,7 +733,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const username = await vscode.window.showInputBox({
         prompt: 'Username (optional)',
-        value: host.username ?? ''
+        value: sanitizeDisplayText(host.username ?? '')
       });
       if (username === undefined) {
         return;
@@ -754,14 +763,16 @@ export async function activate(context: vscode.ExtensionContext) {
       try {
         await store.updateSshHost({
           ...host,
-          name: name.trim(),
-          hostname: hostname.trim(),
-          username: username.trim() || undefined,
+          name: sanitizeDisplayText(name),
+          hostname: sanitizeDisplayText(hostname),
+          username: sanitizeDisplayText(username) || undefined,
           port: port.trim() ? Number(port.trim()) : undefined
         });
-        vscode.window.showInformationMessage(`Updated SSH Host "${name.trim()}"`);
+        vscode.window.showInformationMessage(`Updated SSH Host "${displayHostName(name)}"`);
       } catch (error) {
-        vscode.window.showErrorMessage(`Failed to update SSH Host: ${error instanceof Error ? error.message : String(error)}`);
+        vscode.window.showErrorMessage(
+          `Failed to update SSH Host: ${sanitizeDisplayText(error instanceof Error ? error.message : String(error))}`
+        );
       }
     }),
     vscode.commands.registerCommand('projectPilot.testSshHostFromOutline', async (item?: OutlineNode) => {
@@ -776,30 +787,27 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       try {
+        const hostName = displayHostName(host.name);
         const result = await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: `Testing SSH Host "${host.name}"`,
+            title: formatSshHostProgressTitle(host.name),
             cancellable: false
           },
           async progress => {
-            progress.report({ message: `Connecting to ${host.hostname}...` });
+            progress.report({ message: `Connecting to ${sanitizeDisplayText(host.hostname)}...` });
             return testSshHostConnection(host);
           }
         );
 
         if (result.success) {
-          vscode.window.showInformationMessage(`SSH connection to "${host.name}" succeeded`);
+          vscode.window.showInformationMessage(`SSH connection to "${hostName}" succeeded`);
           return;
         }
 
-        vscode.window.showErrorMessage(
-          `Failed to connect to SSH Host "${host.name}". Check the connection settings and try again.`
-        );
+        vscode.window.showErrorMessage(formatSshHostProbeFailure(result.message));
       } catch {
-        vscode.window.showErrorMessage(
-          `Failed to connect to SSH Host "${host.name}". Check the connection settings and try again.`
-        );
+        vscode.window.showErrorMessage(formatUnexpectedSshHostProbeFailure(host.name));
       }
     }),
     vscode.commands.registerCommand('projectPilot.migrateSshHostProjects', async (item?: OutlineNode) => {
@@ -813,9 +821,17 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const linkedProjects = store.state.projects.filter(project => project.sshHostId === source.id);
-      if (linkedProjects.length === 0) {
-        vscode.window.showInformationMessage(`SSH Host "${source.name}" has no linked projects to migrate`);
+      const sourceName = displayHostName(source.name);
+      const captured = captureSshHostMigrationProjectIds(store.state.projects, source.id);
+      if (!captured.success) {
+        const missingProjects = captured.missingProjectCount;
+        vscode.window.showErrorMessage(
+          `Cannot migrate projects from "${sourceName}" because ${missingProjects} linked project${missingProjects === 1 ? '' : 's'} ${missingProjects === 1 ? 'does' : 'do'} not have an ID`
+        );
+        return;
+      }
+      if (captured.projectIds.length === 0) {
+        vscode.window.showInformationMessage(`SSH Host "${sourceName}" has no linked projects to migrate`);
         return;
       }
 
@@ -823,8 +839,10 @@ export async function activate(context: vscode.ExtensionContext) {
         .filter(candidate => candidate.id !== source.id)
         .sort((left, right) => left.name.localeCompare(right.name))
         .map(host => ({
-          label: host.name,
-          description: `${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? `:${host.port}` : ''}`,
+          label: displayHostName(host.name),
+          description: sanitizeDisplayText(
+            `${host.username ? `${host.username}@` : ''}${host.hostname}${host.port ? `:${host.port}` : ''}`
+          ),
           host
         }));
       if (targets.length === 0) {
@@ -833,15 +851,17 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       const selected = await vscode.window.showQuickPick(targets, {
-        placeHolder: `Migrate projects from "${source.name}" to another Host`
+        placeHolder: `Migrate projects from "${sourceName}" to another Host`
       });
       if (!selected) {
         return;
       }
 
-      const count = linkedProjects.length;
+      const targetName = displayHostName(selected.host.name);
+      const capturedProjectIds = captured.projectIds;
+      const count = capturedProjectIds.length;
       const confirm = await vscode.window.showWarningMessage(
-        `Migrate ${count} project${count === 1 ? '' : 's'} from "${source.name}" to "${selected.host.name}"?`,
+        `Migrate ${count} project${count === 1 ? '' : 's'} from "${sourceName}" to "${targetName}"?`,
         { modal: true },
         'Migrate'
       );
@@ -850,13 +870,18 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       try {
-        await store.migrateSshHostProjects(source.id, selected.host.id);
+        await migrateCapturedSshHostProjects(
+          store,
+          source.id,
+          selected.host.id,
+          capturedProjectIds
+        );
         vscode.window.showInformationMessage(
-          `Migrated ${count} project${count === 1 ? '' : 's'} from "${source.name}" to "${selected.host.name}"`
+          `Migrated ${count} project${count === 1 ? '' : 's'} from "${sourceName}" to "${targetName}"`
         );
       } catch (error) {
         vscode.window.showErrorMessage(
-          `Failed to migrate SSH Host projects: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to migrate SSH Host projects: ${sanitizeDisplayText(error instanceof Error ? error.message : String(error))}`
         );
       }
     }),
@@ -871,16 +896,17 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      const hostName = displayHostName(host.name);
       const linkedProjects = store.state.projects.filter(project => project.sshHostId === host.id);
       if (linkedProjects.length > 0) {
         vscode.window.showErrorMessage(
-          `Cannot delete SSH Host "${host.name}" because it has ${linkedProjects.length} linked project${linkedProjects.length === 1 ? '' : 's'}`
+          `Cannot delete SSH Host "${hostName}" because it has ${linkedProjects.length} linked project${linkedProjects.length === 1 ? '' : 's'}`
         );
         return;
       }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Delete unused SSH Host "${host.name}"?`,
+        `Delete unused SSH Host "${hostName}"?`,
         { modal: true },
         'Delete'
       );
@@ -890,10 +916,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
       try {
         await store.deleteSshHost(host.id);
-        vscode.window.showInformationMessage(`Deleted SSH Host "${host.name}"`);
+        vscode.window.showInformationMessage(`Deleted SSH Host "${hostName}"`);
       } catch (error) {
         vscode.window.showErrorMessage(
-          `Failed to delete SSH Host: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to delete SSH Host: ${sanitizeDisplayText(error instanceof Error ? error.message : String(error))}`
         );
       }
     }),

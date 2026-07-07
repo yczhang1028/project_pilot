@@ -156,7 +156,7 @@ try {
   const unmanagedNode = modeRoot.children[3];
 
   assert.strictEqual(usedHostNode.type, 'host');
-  assert.strictEqual(usedHostNode.id, 'host:host-build');
+  assert.strictEqual(usedHostNode.id, JSON.stringify(['host', 'host-build']));
   assert.strictEqual(usedHostNode.hostId, 'host-build');
   assert.strictEqual(usedHostNode.label, 'Build Host');
   assert.strictEqual(usedHostNode.description, '1 project');
@@ -170,9 +170,7 @@ try {
   );
 
   const usedHostItem = provider.getTreeItem(usedHostNode);
-  assert.match(usedHostItem.contextValue, /(?:^|,)outline-host(?:,|$)/);
-  assert.match(usedHostItem.contextValue, /(?:^|,)host-used(?:,|$)/);
-  assert.match(usedHostItem.contextValue, /(?:^|,)host:host-build(?:,|$)/);
+  assert.strictEqual(usedHostItem.contextValue, 'outline-host-used');
   assert.strictEqual(usedHostItem.collapsibleState, vscodeMock.TreeItemCollapsibleState.Expanded);
   assert.strictEqual(usedHostItem.command, undefined, 'Host nodes never open projects');
 
@@ -185,10 +183,7 @@ try {
   assert.deepStrictEqual(unusedHostNode.children, []);
 
   const unusedHostItem = provider.getTreeItem(unusedHostNode);
-  assert.match(unusedHostItem.contextValue, /(?:^|,)outline-host(?:,|$)/);
-  assert.match(unusedHostItem.contextValue, /(?:^|,)host-unused(?:,|$)/);
-  assert.match(unusedHostItem.contextValue, /(?:^|,)host:host-alpha(?:,|$)/);
-  assert.doesNotMatch(unusedHostItem.contextValue, /(?:^|,)host-used(?:,|$)/);
+  assert.strictEqual(unusedHostItem.contextValue, 'outline-host-unused');
   assert.strictEqual(unusedHostItem.collapsibleState, vscodeMock.TreeItemCollapsibleState.None);
   assert.strictEqual(unusedHostItem.command, undefined);
 
@@ -216,17 +211,137 @@ try {
   assert.deepStrictEqual(projects, originalProjects, 'provider does not mutate project state');
   assert.deepStrictEqual(hosts, originalHosts, 'provider does not mutate Host state');
 
+  const maliciousHostId = 'used,host-unused';
+  const injectionProvider = new OutlineTreeProvider({
+    state: {
+      sshHosts: [{ id: maliciousHostId, name: 'Injected Host', hostname: 'injected.example.com' }],
+      projects: [{
+        id: 'injected-project',
+        name: 'Injected Project',
+        path: 'injected.example.com:/srv/project',
+        remotePath: '/srv/project',
+        sshHostId: maliciousHostId,
+        type: 'ssh'
+      }]
+    }
+  }, workspaceState, 'host');
+  const injectionModeRoot = injectionProvider.getChildren().find(node => node.sectionKind === 'mode-root');
+  const injectionHostNode = injectionModeRoot.children[0];
+  assert.strictEqual(injectionHostNode.hostId, maliciousHostId, 'Host identity stays on the node');
+  assert.strictEqual(
+    injectionProvider.getTreeItem(injectionHostNode).contextValue,
+    'outline-host-used',
+    'Host IDs cannot inject context-menu capabilities'
+  );
+
+  const collisionProvider = new OutlineTreeProvider({
+    state: {
+      sshHosts: [
+        { id: 'a', name: 'Host A', hostname: 'a.example.com' },
+        { id: 'a:b', name: 'Host AB', hostname: 'ab.example.com' }
+      ],
+      projects: [
+        {
+          id: 'b:c',
+          name: 'Project BC',
+          path: 'a.example.com:/srv/bc',
+          remotePath: '/srv/bc',
+          sshHostId: 'a',
+          group: 'Ops:Prod',
+          type: 'ssh'
+        },
+        {
+          id: 'c',
+          name: 'Project C',
+          path: 'ab.example.com:/srv/c',
+          remotePath: '/srv/c',
+          sshHostId: 'a:b',
+          group: 'Ops:Prod',
+          type: 'ssh'
+        }
+      ]
+    }
+  }, workspaceState, 'host');
+  const collisionHostNodes = collisionProvider
+    .getChildren()
+    .find(node => node.sectionKind === 'mode-root')
+    .children;
+  assert.deepStrictEqual(
+    collisionHostNodes.map(node => JSON.parse(node.id)),
+    [['host', 'a'], ['host', 'a:b']]
+  );
+  assert.notStrictEqual(
+    collisionHostNodes[0].children[0].id,
+    collisionHostNodes[1].children[0].id,
+    'Host a/project b:c cannot collide with Host a:b/project c'
+  );
+  collisionProvider.setMode('group');
+  const encodedGroup = collisionProvider
+    .getChildren()
+    .find(node => node.sectionKind === 'mode-root')
+    .children[0];
+  assert.deepStrictEqual(JSON.parse(encodedGroup.id), ['group', 'group', 'Ops:Prod']);
+
+  const displayProvider = new OutlineTreeProvider({
+    state: {
+      sshHosts: [{
+        id: 'display-host',
+        name: 'Build\r\nHost\u0000',
+        hostname: 'build\r\n.example.com',
+        username: 'user\u001b'
+      }],
+      projects: [{
+        id: 'display-project',
+        name: 'Repo\r\nInjected\u0000',
+        path: 'build.example.com:/srv/repo\r\nspoofed',
+        remotePath: '/srv/repo',
+        sshHostId: 'display-host',
+        description: 'Description\u0007Injected',
+        type: 'ssh'
+      }]
+    }
+  }, workspaceState, 'host');
+  const displayHostNode = displayProvider
+    .getChildren()
+    .find(node => node.sectionKind === 'mode-root')
+    .children[0];
+  const unsafeDisplayControl = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/;
+  assert.strictEqual(displayHostNode.label, 'Build Host');
+  assert.match(displayHostNode.tooltip, /Connection: user@build \.example\.com/);
+  assert.doesNotMatch(displayHostNode.tooltip, unsafeDisplayControl);
+  const displayProjectNode = displayHostNode.children[0];
+  assert.strictEqual(displayProjectNode.label, 'Repo Injected');
+  const displayProjectItem = displayProvider.getTreeItem(displayProjectNode);
+  assert.strictEqual(displayProjectItem.label, 'Repo Injected');
+  assert.doesNotMatch(displayProjectItem.description, unsafeDisplayControl);
+  assert.doesNotMatch(displayProjectItem.tooltip, unsafeDisplayControl);
+
   const manifest = require('../package.json');
+  assert.match(
+    manifest.scripts['test:outline'],
+    /outlineHostActions\.test\.js/,
+    'the focused Outline command helper regression runs with test:outline'
+  );
   const contextMenus = manifest.contributes.menus['view/item/context'];
+  const editMenu = contextMenus.find(menu => menu.command === 'projectPilot.editSshHostFromOutline');
+  const testMenu = contextMenus.find(menu => menu.command === 'projectPilot.testSshHostFromOutline');
   const migrateMenu = contextMenus.find(menu => menu.command === 'projectPilot.migrateSshHostProjects');
   const deleteMenu = contextMenus.find(menu => menu.command === 'projectPilot.deleteSshHostFromOutline');
   assert.strictEqual(
+    editMenu.when,
+    'view == projectPilot.outline && viewItem =~ /^outline-host-(used|unused)$/'
+  );
+  assert.strictEqual(
+    testMenu.when,
+    'view == projectPilot.outline && viewItem =~ /^outline-host-(used|unused)$/'
+  );
+  assert.strictEqual(
     migrateMenu.when,
-    'view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-used/'
+    'view == projectPilot.outline && viewItem == outline-host-used'
   );
   assert.strictEqual(
     deleteMenu.when,
-    'view == projectPilot.outline && viewItem =~ /outline-host/ && viewItem =~ /host-unused/'
+    'view == projectPilot.outline && viewItem == outline-host-unused'
   );
 
   console.log('outlineTreeProvider tests passed');
