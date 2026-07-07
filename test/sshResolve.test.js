@@ -97,7 +97,13 @@ async function testUsernameResolution() {
 }
 
 async function testSuccessfulProbeArguments() {
-  const loaded = loadSshResolveWithMocks();
+  const loaded = loadSshResolveWithMocks({
+    sshConfigStdout: [
+      'user yichi',
+      'hostname 10.7.8.9',
+      'port 2222'
+    ].join('\n')
+  });
   const result = await loaded.module.testSshHostConnection({
     name: 'GPU',
     hostname: '10.7.8.9',
@@ -124,10 +130,36 @@ async function testSuccessfulProbeArguments() {
       windowsHide: true
     }
   }]);
+  assert.deepStrictEqual(loaded.configCalls(), [{
+    command: 'ssh',
+    args: [
+      '-G',
+      '-l',
+      'yichi',
+      '-p',
+      '2222',
+      '--',
+      '10.7.8.9'
+    ],
+    options: {
+      timeout: 4000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true
+    }
+  }]);
+  assert.ok(
+    loaded.configCalls()[0].args.indexOf('-p') < loaded.configCalls()[0].args.indexOf('--'),
+    'the explicit port is an ssh option before the untrusted destination terminator'
+  );
+  assert.ok(
+    loaded.probeCalls()[0].args.indexOf('-p') < loaded.probeCalls()[0].args.indexOf('--'),
+    'the probe port is an ssh option before the untrusted destination terminator'
+  );
   assert.strictEqual(result.success, true);
   assert.strictEqual(result.code, 'ok');
   assert.match(result.message, /GPU/);
   assert.strictEqual(result.resolution.success, true);
+  assert.strictEqual(result.resolution.port, '2222');
 }
 
 async function testProbeWithoutOptionalUserOrPort() {
@@ -149,6 +181,7 @@ async function testProbeWithoutOptionalUserOrPort() {
     'exit'
   ]);
   assert.strictEqual(loaded.probeCalls()[0].args.includes('-p'), false);
+  assert.strictEqual(loaded.configCalls()[0].args.includes('-p'), false);
   assert.strictEqual(loaded.probeCalls()[0].args.some(arg => arg.includes('@')), false);
 }
 

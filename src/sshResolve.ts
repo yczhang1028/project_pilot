@@ -111,10 +111,17 @@ function normalizeChildProcessFailure(error: unknown): ChildProcessFailure {
   };
 }
 
-async function runSshConfigLookup(host: string, username?: string): Promise<Record<string, string>> {
+async function runSshConfigLookup(
+  host: string,
+  username?: string,
+  port?: number
+): Promise<Record<string, string>> {
   const args = ['-G'];
   if (username) {
     args.push('-l', username);
+  }
+  if (port !== undefined) {
+    args.push('-p', String(port));
   }
   args.push('--', host);
 
@@ -210,7 +217,7 @@ export async function resolveSshTarget(input: string): Promise<SshResolutionResu
   let port: string | undefined;
 
   try {
-    const config = await runSshConfigLookup(parsed.hostname, parsed.username);
+    const config = await runSshConfigLookup(parsed.hostname, parsed.username, parsed.port);
     resolvedUsername = getExplicitResolvedUsername(config.user, parsed.username);
     resolvedHostname = config.hostname || resolvedHostname;
     port = config.port || undefined;
