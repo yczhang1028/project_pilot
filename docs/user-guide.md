@@ -18,9 +18,15 @@
 
 ### Views
 
-- `Grid`: visual card layout with richer metadata
-- `List`: denser layout for quick scanning
-- `Mini`: compact icon-first layout for large collections
+- `Command`: compact horizontal tiles for fast project switching; this is the default for new configurations
+- `Explorer`: dense aligned rows for quickly scanning large collections
+- `Gallery`: richer project cards with a Favorites rail
+
+Use the three-way switch in the Manager command bar to change layouts. The
+selection is shared by sidebar and fullscreen Managers and persists across
+reloads. Existing `mini`, `list`, and `grid` configuration values map to
+Command, Explorer, and Gallery respectively. Layouts now own their responsive
+density, so there is no separate Compact toggle.
 
 ### Main interactions
 
@@ -28,8 +34,12 @@
 - Group projects visually
 - Edit name, description, colors, icons, and tags
 - Open projects directly from cards
-- Use responsive layout density in narrow sidebars or fullscreen
+- Keep the selected layout while it adapts automatically to narrow sidebars or fullscreen
 - Open `SSH Hosts` from the toolbar to manage reusable SSH connections
+
+Project Editor and SSH Hosts can be opened as nested dialogs. Escape closes or
+cancels only the topmost dialog state, focus returns to the control that opened
+it, and the dialog body remains scrollable at narrow widths or high zoom.
 
 ### SSH Hosts
 

@@ -2,6 +2,15 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [Unreleased]
+
+### ✨ Manager Layout Refresh
+- **Three Named Layouts**: Replaced the Grid/List/Mini presentation with switchable Command, Explorer, and Gallery experiences while retaining the stored values for compatibility.
+- **Simplified Density**: Removed the separate Compact control; each layout now adapts responsively without changing the selected mode.
+- **Selective Glass System**: Concentrated frosted material on the command bar, group surfaces, and dialogs while keeping project rows and controls crisp.
+- **Unified Modal Stack**: Project Editor and SSH Hosts now share deterministic nested layers, topmost-only Escape handling, focus containment and restoration, and one scroll lock.
+- **Zoom and Scroll Safety**: Dialogs use dynamic viewport sizing and a single scroll owner for narrow windows and browser zoom.
+
 ## [2.0.2] - 2026-03-10
 
 ### 🔧 Patch Updates

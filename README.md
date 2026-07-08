@@ -10,7 +10,7 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 ## Why Project Pilot
 
 - `📁` One place for `local`, `.code-workspace`, `ssh`, and `ssh-workspace` targets
-- `🧩` Adaptive `Grid`, `List`, and `Mini` layouts for sidebars and fullscreen
+- `🧩` Switchable `Command`, `Explorer`, and `Gallery` layouts for sidebars and fullscreen
 - `🌲` A stronger `Outline` with `By Group`, `By Target`, `By Type`, and `Flat`
 - `💾` Portable local JSON config with import, export, backup, and restore
 - `✨` A refined 2.0 glass-style UI with cleaner controls and unified modals
@@ -35,14 +35,14 @@ Launch local folders, workspace files, and SSH projects from one modern command 
 
 ## Screenshots
 
-### `🗂️` Grid
-![Grid View](media/demo/demo_grid.png)
+### `⌘` Command
+Compact project tiles for fast daily switching. Stored as the legacy `mini` value for configuration compatibility.
 
-### `📋` List
-![List View](media/demo/demo_list.png)
+### `📋` Explorer
+Dense aligned rows for scanning large project collections. Stored as the legacy `list` value.
 
-### `🔹` Mini
-![Mini View](media/demo/demo_mini.png)
+### `🗂️` Gallery
+Richer project cards plus a Favorites rail. Stored as the legacy `grid` value.
 
 ### `✍️` Add / Edit
 ![Add Project](media/demo/demo_add.png)
