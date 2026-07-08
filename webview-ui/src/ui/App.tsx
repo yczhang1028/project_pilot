@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import SshHostManager from './SshHostManager';
+import { ModalSurface } from './ModalHost';
+import { FavoriteProjectsRail, ProjectLayout } from './ProjectLayouts';
+import {
+  fromStoredViewMode,
+  layoutOptions,
+  toStoredViewMode,
+  type ManagerLayout
+} from './managerLayout';
 import type {
   ProjectItem,
   ProjectType,
@@ -443,26 +450,12 @@ const toAlpha = (color: string, alpha: number): string => {
   return value;
 };
 
-const getGridLayoutStyle = (compact: boolean): React.CSSProperties => ({
-  display: 'grid',
-  gridTemplateColumns: `repeat(auto-fit, minmax(${compact ? 220 : 280}px, 1fr))`,
-  gap: compact ? '0.75rem' : '1rem'
-});
-
-const getMiniLayoutStyle = (compact: boolean, narrow: boolean): React.CSSProperties => ({
-  display: 'grid',
-  gridTemplateColumns: `repeat(auto-fit, minmax(${narrow ? 88 : compact ? 92 : 104}px, max-content))`,
-  gap: compact ? '0.6rem' : '0.8rem',
-  justifyContent: 'flex-start'
-});
-
-type ViewMode = 'grid' | 'list' | 'mini';
 type SortBy = 'name' | 'type' | 'recent' | 'frequency';
 
 export default function App() {
   const [state, setState] = useState<State>(() => normalizeUiState(undefined));
   const [q, setQ] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [layout, setLayout] = useState<ManagerLayout>('command');
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
@@ -470,7 +463,6 @@ export default function App() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [showByGroup, setShowByGroup] = useState(true);
   const [groupMode, setGroupMode] = useState<'custom' | 'target'>('custom'); // 分组模式：自定义分组 或 按Target分组
-  const [compactMode, setCompactMode] = useState(false);
   const [autoOpenFullscreen, setAutoOpenFullscreen] = useState(true);
   const [newProjectType, setNewProjectType] = useState<ProjectType | null>(null);
   const [theme, setTheme] = useState(getVSCodeTheme());
@@ -503,11 +495,8 @@ export default function App() {
         
         // 同步UI设置到本地状态
         if (newState.uiSettings) {
-          if (newState.uiSettings.compactMode !== undefined) {
-            setCompactMode(newState.uiSettings.compactMode);
-          }
           if (newState.uiSettings.viewMode !== undefined) {
-            setViewMode(newState.uiSettings.viewMode);
+            setLayout(fromStoredViewMode(newState.uiSettings.viewMode));
           }
           if (newState.uiSettings.selectedGroup !== undefined) {
             setSelectedGroup(newState.uiSettings.selectedGroup);
@@ -749,21 +738,8 @@ export default function App() {
     setSshHostTestResult(null);
   };
 
-  const isNarrowWindow = windowWidth < 760;
-  const isMediumWindow = windowWidth < 1080;
-  const adaptiveCompactMode = compactMode || isMediumWindow;
   const headerStacked = windowWidth < 920;
   const actionStacked = windowWidth < 560;
-  const gridLayoutStyle = getGridLayoutStyle(adaptiveCompactMode);
-  const miniLayoutStyle = getMiniLayoutStyle(adaptiveCompactMode, isNarrowWindow);
-  const collectionClassName = viewMode === 'list'
-    ? adaptiveCompactMode ? 'space-y-2' : 'space-y-3'
-    : undefined;
-  const collectionStyle = viewMode === 'grid'
-    ? gridLayoutStyle
-    : viewMode === 'mini'
-      ? miniLayoutStyle
-      : undefined;
   const primaryGlow = toAlpha(theme.focusBorder, 0.32);
   const subtleGlow = toAlpha(theme.focusBorder, 0.2);
   const cardGlassBackground = toAlpha(theme.secondaryBackground, 0.72);
@@ -785,44 +761,24 @@ export default function App() {
         color: theme.foreground 
       }}
     >
-      <div className="floating-grid"></div>
-      <div className="floating-orb floating-orb--a"></div>
-      <div className="floating-orb floating-orb--b"></div>
-
       {/* Header */}
       <div 
-        className="glass-panel hero-panel glow-border rounded-2xl shadow-sm p-4 sm:p-5"
+        className="manager-commandbar liquid-panel rounded-2xl p-3 sm:p-4"
+        data-expanded={showControls || showAddForm}
         style={{ 
           backgroundColor: panelBackground,
           borderColor: toAlpha(theme.border, 0.52),
           ['--glow-color' as string]: subtleGlow
         }}
       >
-        <div className={`relative z-10 flex ${headerStacked ? 'flex-col gap-4' : 'items-start justify-between gap-4'} mb-4`}>
-          <div className="min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-semibold tracking-tight" style={{ color: theme.foreground }}>Project Pilot</h1>
-              <span className="stat-chip px-3 py-1 rounded-full text-[11px] uppercase tracking-[0.24em]" style={{ color: toAlpha(theme.foreground, 0.72) }}>
-                Adaptive Command Deck
-              </span>
-            </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6" style={{ color: toAlpha(theme.foreground, 0.74) }}>
-              Fluid project switching with responsive layouts, layered glass surfaces, and density that adapts to your window width.
-            </p>
+        <div className="relative z-10 flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="manager-brand-mark" aria-hidden="true">⌁</span>
+            <h1 className="text-lg font-semibold tracking-tight truncate" style={{ color: theme.foreground }}>Project Pilot</h1>
           </div>
-          <div className="control-cluster justify-start sm:justify-end">
-            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
-              {state.projects.length} total
-            </span>
-            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
-              {filtered.length} visible
-            </span>
-            {isMediumWindow && (
-              <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: toAlpha(theme.foreground, 0.82) }}>
-                Auto Compact
-              </span>
-            )}
-          </div>
+          <span className="text-xs tabular-nums" style={{ color: toAlpha(theme.foreground, 0.58) }}>
+            {filtered.length}/{state.projects.length}
+          </span>
         </div>
         
         {/* Search Bar */}
@@ -909,6 +865,24 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
+          <div className="layout-switcher" role="group" aria-label="Manager layout">
+            {layoutOptions.map(option => (
+              <button
+                key={option.id}
+                className="layout-switcher__button"
+                data-active={layout === option.id}
+                aria-pressed={layout === option.id}
+                title={`${option.label} layout`}
+                onClick={() => {
+                  setLayout(option.id);
+                  updateUISettings({ viewMode: toStoredViewMode(option.id) });
+                }}
+              >
+                <span aria-hidden="true">{option.id === 'command' ? '▦' : option.id === 'explorer' ? '☷' : '▤'}</span>
+                <span className="layout-switcher__label">{option.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Collapsible Controls */}
@@ -983,48 +957,6 @@ export default function App() {
               {/* View Options and Configure */}
               <div className={`flex gap-3 ${headerStacked ? 'flex-col' : 'items-start justify-between'}`}>
                 <div className="control-cluster">
-                  <div className="glass-card flex rounded-2xl overflow-hidden text-xs" style={{ borderColor: toAlpha(theme.inputBorder, 0.52), backgroundColor: secondaryPanelBackground }}>
-                    <button 
-                      className="px-3 py-2 transition-colors"
-                      style={{
-                        backgroundColor: viewMode === 'grid' ? theme.listActiveSelectionBackground : theme.inputBackground,
-                        color: viewMode === 'grid' ? theme.buttonForeground : theme.inputForeground
-                      }}
-                      onClick={() => {
-                        setViewMode('grid');
-                        updateUISettings({ viewMode: 'grid' });
-                      }}
-                    >
-                      Grid
-                    </button>
-                    <button 
-                      className="px-3 py-2 transition-colors"
-                      style={{
-                        backgroundColor: viewMode === 'list' ? theme.listActiveSelectionBackground : theme.inputBackground,
-                        color: viewMode === 'list' ? theme.buttonForeground : theme.inputForeground
-                      }}
-                      onClick={() => {
-                        setViewMode('list');
-                        updateUISettings({ viewMode: 'list' });
-                      }}
-                    >
-                      List
-                    </button>
-                    <button 
-                      className="px-3 py-2 transition-colors"
-                      style={{
-                        backgroundColor: viewMode === 'mini' ? theme.listActiveSelectionBackground : theme.inputBackground,
-                        color: viewMode === 'mini' ? theme.buttonForeground : theme.inputForeground
-                      }}
-                      onClick={() => {
-                        setViewMode('mini');
-                        updateUISettings({ viewMode: 'mini' });
-                      }}
-                    >
-                      Mini
-                    </button>
-                  </div>
-                  
                   <button 
                     className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
                     style={{
@@ -1066,22 +998,6 @@ export default function App() {
                     {showFavoritesOnly ? '⭐ Favorites' : '☆ All'}
                   </button>
                   
-                  <button 
-                    className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
-                    style={{
-                      backgroundColor: compactMode ? theme.listActiveSelectionBackground : theme.inputBackground,
-                      color: compactMode ? theme.buttonForeground : theme.inputForeground,
-                      borderColor: theme.inputBorder
-                    }}
-                    onClick={() => {
-                      const newCompactMode = !compactMode;
-                      setCompactMode(newCompactMode);
-                      updateUISettings({ compactMode: newCompactMode });
-                    }}
-                    title="Toggle compact layout"
-                  >
-                    {compactMode ? '📦 Compact' : '📏 Normal'}
-                  </button>
                 </div>
 
                 {/* Auto Open + Refresh & Settings Buttons */}
@@ -1270,7 +1186,7 @@ export default function App() {
       
       {/* Projects Display */}
       <div 
-        className="glass-panel glow-border rounded-2xl shadow-sm p-3 sm:p-4"
+        className="projects-shell p-1 sm:p-2"
         style={{ 
           backgroundColor: panelBackground,
           borderColor: toAlpha(theme.border, 0.52),
@@ -1286,15 +1202,20 @@ export default function App() {
               </span>
             )}
           </h2>
-          <div className="control-cluster">
-            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
-              {viewMode.toUpperCase()}
-            </span>
-            <span className="stat-chip px-3 py-1.5 rounded-full text-xs" style={{ color: theme.foreground }}>
-              {adaptiveCompactMode ? 'Compact Density' : 'Comfort Density'}
-            </span>
-          </div>
+          <span className="text-xs" style={{ color: toAlpha(theme.foreground, 0.58) }}>
+            {layoutOptions.find(option => option.id === layout)?.label}
+          </span>
         </div>
+
+        {layout === 'gallery' && !showFavoritesOnly && (
+          <FavoriteProjectsRail
+            projects={state.projects}
+            onOpen={project => {
+              recordProjectAccess(project.id!);
+              vscode.postMessage({ type: 'open', payload: project });
+            }}
+          />
+        )}
         
         {state.projects.length === 0 ? (
           <div className="text-center py-12" style={{ color: theme.foreground, opacity: 0.7 }}>
@@ -1330,11 +1251,11 @@ export default function App() {
             <p className="text-sm mt-1">Try adjusting your search or filters</p>
           </div>
         ) : showByGroup ? (
-          <div className="space-y-6">
+          <div className="space-y-3">
             {Object.entries(groupedProjects).map(([groupName, projects]) => (
-              <div key={groupName}>
-                <div className="flex items-center gap-2 mb-3">
-                  <h3 className="text-lg font-semibold" style={{ color: theme.foreground }}>
+              <section key={groupName} className="project-group">
+                <div className="project-group__header">
+                  <h3 className="text-base font-semibold" style={{ color: theme.foreground }}>
                     {groupName}
                   </h3>
                   <span className="stat-chip text-sm px-2.5 py-1 rounded-full" style={{ 
@@ -1343,14 +1264,13 @@ export default function App() {
                   }}>
                     {projects.length}
                   </span>
-      </div>
-                <div className={collectionClassName} style={collectionStyle}>
+                </div>
+                <ProjectLayout layout={layout}>
                   {projects.map(p => (
                     <Card 
                       key={p.id ?? p.path} 
                       p={p} 
-                      viewMode={viewMode}
-                      compactMode={adaptiveCompactMode}
+                      layout={layout}
                       theme={theme}
                       allGroups={allGroups}
                       sshHosts={state.sshHosts}
@@ -1364,18 +1284,17 @@ export default function App() {
                       onToggleFavorite={toggleProjectFavorite}
                     />
         ))}
-      </div>
-              </div>
+                </ProjectLayout>
+              </section>
             ))}
           </div>
         ) : (
-          <div className={collectionClassName} style={collectionStyle}>
+          <ProjectLayout layout={layout}>
         {filtered.map(p => (
               <Card 
                 key={p.id ?? p.path} 
                 p={p} 
-                viewMode={viewMode}
-                compactMode={adaptiveCompactMode}
+                layout={layout}
                 theme={theme}
                 allGroups={allGroups}
                 sshHosts={state.sshHosts}
@@ -1389,10 +1308,10 @@ export default function App() {
                 onToggleFavorite={toggleProjectFavorite}
               />
             ))}
-          </div>
+          </ProjectLayout>
         )}
       </div>
-      
+
       {/* New Project Modal */}
       {newProjectType && (
         <EditModal 
@@ -1459,10 +1378,9 @@ export default function App() {
   );
 }
 
-function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSshHosts, onChange, onDelete, onOpen, onToggleFavorite }: {
+function Card({ p, layout, theme, allGroups, sshHosts, onManageSshHosts, onChange, onDelete, onOpen, onToggleFavorite }: {
   p: ProjectItem; 
-  viewMode: ViewMode;
-  compactMode: boolean;
+  layout: ManagerLayout;
   theme: any;
   allGroups: string[];
   sshHosts: SshHost[];
@@ -1472,7 +1390,6 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
   onOpen: () => void;
   onToggleFavorite: (id: string) => void;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -1490,82 +1407,53 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
     'ssh-workspace': 'bg-purple-100 text-purple-700'
   };
 
-  if (viewMode === 'mini') {
+  if (layout === 'command') {
     return (
-      <div 
-        className="glass-card glow-border group relative text-center flex flex-col flex-shrink-0 rounded-2xl px-2 py-2"
-        style={{ width: compactMode ? '92px' : '108px', height: compactMode ? '98px' : '112px', ['--glow-color' as string]: toAlpha(p.color || theme.focusBorder, 0.2) }}
+      <article
+        className="project-tile project-tile--command group"
+        style={{ ['--project-accent' as string]: p.color || theme.focusBorder }}
         title={`${p.description ? p.description + '\n' : ''}Path: ${p.path}${p.tags?.length ? '\nTags: ' + p.tags.join(', ') : ''}`}
       >
-        {/* Icon */}
-        <div 
-          className="w-10 h-10 mx-auto mt-1 rounded-xl border-2 flex items-center justify-center cursor-pointer transition-all duration-200 hover:scale-105"
-          style={{ 
-            borderColor: p.color,
-            backgroundColor: toAlpha(theme.secondaryBackground, 0.72),
-            color: p.color,
-            boxShadow: `0 0 22px ${toAlpha(p.color || theme.focusBorder, 0.18)}`
-          }}
+        <button
+          className="project-tile__main"
           onClick={onOpen}
+          title={`Open ${p.name}`}
         >
-          {p.icon ? (
-            <img src={p.icon} className="w-8 h-8 object-cover rounded-sm" alt="" />
-          ) : (
-            <span className="text-base">{typeIcons[p.type]}</span>
-          )}
-        </div>
-        
-        {/* Name */}
-        <div className="px-1 mt-1">
-          <div 
-            className="text-xs font-semibold cursor-pointer text-center w-full truncate"
-            style={{ color: theme.foreground }}
-            onClick={onOpen}
-          >
-            {p.name}
-          </div>
-        </div>
-        
-        {/* Hover actions - positioned at bottom */}
-        <div className="flex-1 flex items-end justify-center">
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex justify-center gap-1 mb-0.5">
+          <span className="project-icon" style={{ color: p.color || theme.focusBorder }}>
+            {p.icon
+              ? <img src={p.icon} className="w-full h-full object-cover rounded-lg" alt={p.name} />
+              : typeIcons[p.type]}
+          </span>
+          <span className="min-w-0 text-left">
+            <strong className="project-name" style={{ color: theme.foreground }}>{p.name}</strong>
+            <span className="project-path" style={{ color: toAlpha(theme.foreground, 0.58) }}>{p.path}</span>
+          </span>
+        </button>
+        <div className="project-actions" aria-label={`${p.name} actions`}>
           <button
-            className="w-4 h-4 rounded-full flex items-center justify-center transition-colors"
-            style={{ 
-              backgroundColor: theme.primaryBackground,
-              color: p.isFavorite ? '#eab308' : theme.foreground,
-              border: `1px solid ${theme.border}`
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite(p.id!);
-            }}
+            className="project-action"
+            style={{ color: p.isFavorite ? '#fbbf24' : theme.foreground }}
+            onClick={() => onToggleFavorite(p.id!)}
             title={p.isFavorite ? "Remove from favorites" : "Add to favorites"}
           >
-            <svg className="w-2.5 h-2.5" fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
             </svg>
           </button>
           <button
-            className="w-4 h-4 rounded-full flex items-center justify-center transition-colors"
-            style={{ 
-              backgroundColor: theme.primaryBackground,
-              color: theme.foreground,
-              border: `1px solid ${theme.border}`
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsEditing(true);
-            }}
+            className="project-action"
+            style={{ color: theme.foreground }}
+            onClick={() => setIsEditing(true)}
             title="Edit"
           >
-            <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
           </button>
-          </div>
+          <button className="project-action" style={{ color: theme.foreground }} onClick={onDelete} title="Delete">
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
-        
         {isEditing && (
           <EditModal 
             project={p}
@@ -1580,14 +1468,14 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
             onCancel={() => setIsEditing(false)}
           />
         )}
-      </div>
+      </article>
     );
   }
 
-  if (viewMode === 'list') {
+  if (layout === 'explorer') {
     return (
       <div 
-        className={`glass-card glow-border flex items-center gap-4 ${compactMode ? "p-2.5" : "p-3.5"} rounded-2xl border transition-all duration-200 group`}
+        className="project-tile project-tile--explorer flex items-center gap-3 group"
         style={{ 
           backgroundColor: toAlpha(theme.secondaryBackground, 0.72), 
           borderColor: toAlpha(theme.border, 0.42),
@@ -1596,7 +1484,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
         }}
       >
         <div 
-          className={`${compactMode ? "w-9 h-9 text-lg" : "w-12 h-12 text-2xl"} rounded-xl flex items-center justify-center border-2 cursor-pointer hover:opacity-80 transition-opacity`}
+          className="project-icon cursor-pointer"
           style={{ 
             borderColor: p.color,
             backgroundColor: toAlpha(theme.primaryBackground, 0.66),
@@ -1619,36 +1507,36 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
               className="w-3 h-3 rounded-full flex-shrink-0"
               style={{ backgroundColor: p.color }}
             ></div>
-            <h3 className={`${compactMode ? "text-sm font-semibold" : "font-bold"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
+            <h3 className="project-name" style={{ color: theme.foreground }} title={p.description || p.name}>
               {p.name}
             </h3>
-            <span className={`${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium ${typeColors[p.type]}`}>
+            <span className={`project-type ${typeColors[p.type]}`}>
               {p.type}
             </span>
           </div>
           {p.description && (
-            <p className={`${compactMode ? "text-xs" : "text-sm"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.8 }} title={p.description}>
+            <p className="text-xs truncate mt-0.5 explorer-description" style={{ color: theme.foreground, opacity: 0.74 }} title={p.description}>
               {p.description}
             </p>
           )}
-          <p className={`${compactMode ? "text-xs" : "text-xs"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
+          <p className="project-path explorer-path" style={{ color: theme.foreground, opacity: 0.58 }} title={p.path}>{p.path}</p>
           {p.tags && p.tags.length > 0 && (
-            <div className={`flex gap-1 ${compactMode ? "mt-1" : "mt-2"}`}>
-              {p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
-                <span key={tag} className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
+            <div className="explorer-tags flex gap-1 mt-1">
+              {p.tags.slice(0, 2).map(tag => (
+                <span key={tag} className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 text-gray-600">
                   {tag}
                 </span>
               ))}
-              {p.tags.length > (compactMode ? 2 : 3) && (
-                <span className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
-                  +{p.tags.length - (compactMode ? 2 : 3)}
+              {p.tags.length > 2 && (
+                <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 text-gray-600">
+                  +{p.tags.length - 2}
                 </span>
               )}
             </div>
           )}
         </div>
         
-        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="project-actions flex items-center gap-1">
           <button
             className={`soft-button p-2 rounded-xl transition-colors ${p.isFavorite ? 'text-yellow-500 hover:text-yellow-600' : 'text-gray-500 hover:text-yellow-600'}`}
             onClick={() => onToggleFavorite(p.id!)}
@@ -1708,7 +1596,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
   // Grid view
   return (
     <div 
-      className="glass-card glow-border rounded-2xl border shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group flex flex-col h-full"
+      className="project-tile project-tile--gallery group"
       style={{ 
         backgroundColor: toAlpha(theme.secondaryBackground, 0.72),
         borderColor: toAlpha(p.color || theme.border, 0.46),
@@ -1717,7 +1605,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
       }}
     >
       <div 
-        className={`${compactMode ? 'h-24' : 'h-36'} flex items-center justify-center relative cursor-pointer flex-shrink-0`}
+        className="gallery-visual flex items-center justify-center relative cursor-pointer flex-shrink-0"
         style={{ 
           backgroundColor: p.icon ? 'transparent' : toAlpha(theme.primaryBackground, 0.72),
           backgroundImage: p.icon ? `url(${p.icon})` : 'none',
@@ -1728,8 +1616,8 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
       >
         {!p.icon && (
           <div className="text-center" style={{ color: p.color }}>
-            <div className={`${compactMode ? "text-2xl mb-1" : "text-4xl mb-2"}`}>{typeIcons[p.type]}</div>
-            <div className={`${compactMode ? "text-xs" : "text-sm"} opacity-80 capitalize font-medium tracking-wide`}>{p.type}</div>
+            <div className="text-2xl mb-1">{typeIcons[p.type]}</div>
+            <div className="text-[10px] opacity-70 capitalize font-medium tracking-wide">{p.type}</div>
           </div>
         )}
         
@@ -1756,40 +1644,40 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
         </div>
       </div>
       
-      <div className={`${compactMode ? "p-2" : "p-4"} flex flex-col flex-1`}>
-        <div className={`flex items-start justify-between ${compactMode ? "mb-1" : "mb-2"}`}>
+      <div className="p-3 flex flex-col flex-1 min-w-0">
+        <div className="flex items-start justify-between mb-1">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <div 
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: p.color }}
               ></div>
-              <h3 className={`${compactMode ? "text-sm font-semibold" : "font-bold"} truncate`} style={{ color: theme.foreground }} title={p.description || p.name}>
+              <h3 className="project-name" style={{ color: theme.foreground }} title={p.description || p.name}>
                 {p.name}
               </h3>
             </div>
             {p.description && (
-              <p className={`${compactMode ? "text-xs" : "text-sm"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.8 }} title={p.description}>
+              <p className="gallery-description truncate mt-0.5" style={{ color: theme.foreground, opacity: 0.74 }} title={p.description}>
                 {p.description}
               </p>
             )}
-            <p className={`${compactMode ? "text-xs" : "text-xs"} truncate mt-1`} style={{ color: theme.foreground, opacity: 0.6 }} title={p.path}>{p.path}</p>
+            <p className="project-path" style={{ color: theme.foreground, opacity: 0.58 }} title={p.path}>{p.path}</p>
           </div>
-          <span className={`ml-2 ${compactMode ? "px-1 py-0.5 text-xs" : "px-2 py-1 text-xs"} rounded-full font-medium flex-shrink-0 ${typeColors[p.type]}`}>
+          <span className={`project-type ml-2 flex-shrink-0 ${typeColors[p.type]}`}>
             {p.type}
           </span>
         </div>
         
         {/* Tags 区域 - 固定高度保持对齐 */}
-        <div className={`flex flex-wrap gap-1 ${compactMode ? "mb-1 min-h-[20px]" : "mb-3 min-h-[28px]"}`}>
-            {p.tags && p.tags.slice(0, compactMode ? 2 : 3).map(tag => (
-              <span key={tag} className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
+        <div className="gallery-tags flex flex-wrap gap-1 mb-2 min-h-[18px]">
+            {p.tags && p.tags.slice(0, 2).map(tag => (
+              <span key={tag} className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 text-gray-600">
                 {tag}
               </span>
             ))}
-            {p.tags && p.tags.length > (compactMode ? 2 : 3) && (
-              <span className={`${compactMode ? "px-1 py-0.5 text-xs rounded" : "px-2 py-1 text-xs rounded-full"} bg-gray-100 text-gray-600`}>
-                +{p.tags.length - (compactMode ? 2 : 3)}
+            {p.tags && p.tags.length > 2 && (
+              <span className="px-1.5 py-0.5 text-[10px] rounded bg-gray-100 text-gray-600">
+                +{p.tags.length - 2}
               </span>
             )}
           </div>
@@ -1797,7 +1685,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
         {/* 按钮区域 - 始终在底部 */}
         <div className="flex items-center justify-between mt-auto">
           <button
-            className={`flex-1 ${compactMode ? "py-1 px-2 text-xs" : "py-2 px-3 text-sm"} rounded-lg transition-colors font-medium`}
+            className="flex-1 py-1.5 px-2 text-xs rounded-lg transition-colors font-medium"
             style={{
               backgroundColor: theme.buttonBackground,
               color: theme.buttonForeground
@@ -1810,7 +1698,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
           </button>
           <div className="flex gap-1 ml-2">
             <button
-              className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
+              className="project-action"
               style={{ 
                 color: p.isFavorite ? '#eab308' : theme.foreground,
                 opacity: p.isFavorite ? 1 : 0.6
@@ -1828,12 +1716,12 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
               onClick={() => onToggleFavorite(p.id!)}
               title={p.isFavorite ? "Remove from favorites" : "Add to favorites"}
             >
-              <svg className={compactMode ? "w-3 h-3" : "w-4 h-4"} fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill={p.isFavorite ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
             </button>
             <button
-              className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
+              className="project-action"
               style={{ 
                 color: theme.foreground,
                 opacity: 0.6
@@ -1849,12 +1737,12 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
               onClick={() => setIsEditing(true)}
               title="Edit"
             >
-              <svg className={compactMode ? "w-3 h-3" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </button>
             <button
-              className={`${compactMode ? "p-1" : "p-2"} rounded-lg transition-colors`}
+              className="project-action"
               style={{ 
                 color: theme.foreground,
                 opacity: 0.6
@@ -1872,7 +1760,7 @@ function Card({ p, viewMode, compactMode, theme, allGroups, sshHosts, onManageSs
               onClick={onDelete}
               title="Delete"
             >
-              <svg className={compactMode ? "w-3 h-3" : "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
@@ -1940,7 +1828,6 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
   const [testMessage, setTestMessage] = useState<string>('');
   const [isCreatingNewGroup, setIsCreatingNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
-  const [isDragging, setIsDragging] = useState(false);
   const [remoteStatus, setRemoteStatus] = useState<CurrentRemoteStatus | null>(null);
   const [sshResolution, setSshResolution] = useState<SshResolution | null>(null);
   const [isResolvingSsh, setIsResolvingSsh] = useState(false);
@@ -2216,20 +2103,6 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
     };
   }, [applySelectedPath, tagsInput, usesManagedSshFields]);
 
-  // 监听ESC键关闭Modal
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onCancel();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [onCancel]);
-
   // 预设的漂亮颜色
   const presetColors = [
     '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -2325,46 +2198,20 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
     });
   };
 
-  return createPortal(
-    <div 
-      className="fixed inset-0 z-[9999] overflow-y-auto p-3 sm:p-4" 
-      style={{
-        background: 'radial-gradient(circle at top, rgba(59,130,246,0.14), transparent 30%), rgba(3, 7, 18, 0.56)',
-        backdropFilter: 'blur(18px)'
-      }}
-      onMouseDown={(e) => {
-        // 只有直接点击背景时才关闭，不包括拖拽事件
-        if (e.target === e.currentTarget && !isDragging) {
-          onCancel();
-        }
-      }}
-      onMouseMove={() => setIsDragging(true)}
-      onMouseUp={() => setIsDragging(false)}
+  return (
+    <ModalSurface
+      id={`project-editor-${project.id || project.type}`}
+      labelId="project-editor-title"
+      onRequestClose={onCancel}
+      maxWidth="760px"
+      className="project-editor-modal"
     >
-      <div className="min-h-full flex items-start justify-center py-3 sm:py-8">
-        <div 
-          className="glass-panel glow-border rounded-3xl border"
-          style={{ 
-            backgroundColor: modalPanelBackground,
-            borderColor: toAlpha(theme.border, 0.52),
-            width: 'min(760px, 92vw)',
-            minWidth: '320px',
-            maxWidth: '760px',
-            maxHeight: 'calc(100vh - 2rem)',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            ['--panel-bg' as string]: modalPanelBackground,
-            ['--panel-border' as string]: toAlpha(theme.border, 0.52),
-            ['--glow-color' as string]: toAlpha(theme.focusBorder, 0.22)
-          }}
-          onClick={e => e.stopPropagation()}
-          onMouseDown={e => e.stopPropagation()}
-        >
+      <div className="modal-body" style={{ backgroundColor: modalPanelBackground }}>
         <div className="relative p-5 sm:p-6">
         <div className="mb-5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h3 className="text-xl font-semibold text-left tracking-tight" style={{ color: theme.foreground }}>
+              <h3 id="project-editor-title" className="text-xl font-semibold text-left tracking-tight" style={{ color: theme.foreground }}>
                 {isNewProject ? `Add ${project.type} Project` : 'Edit Project'}
               </h3>
               <p className="mt-1 text-sm" style={{ color: toAlpha(theme.foreground, 0.72) }}>
@@ -2960,9 +2807,7 @@ function EditModal({ project, theme, allGroups, sshHosts, onManageSshHosts, onSa
         </div>
         </div>
       </div>
-      </div>
-    </div>,
-    document.body
+    </ModalSurface>
   );
 }
 

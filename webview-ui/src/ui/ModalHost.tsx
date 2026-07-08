@@ -103,7 +103,11 @@ export function ModalSurface({
       host.unregister(id);
       requestAnimationFrame(() => restoreFocusRef.current?.focus());
     };
-  }, [id, dismissible, host.register, host.unregister]);
+  }, [id, host.register, host.unregister]);
+
+  useEffect(() => {
+    host.register({ id, dismissible });
+  }, [dismissible, host.register, id]);
 
   const layer = Math.max(0, getModalLayer(host.stack, id));
   const isTop = getTopModal(host.stack)?.id === id;

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { ModalSurface } from './ModalHost';
 import type {
   ProjectItem,
   SshHost,
@@ -83,6 +83,7 @@ export default function SshHostManager({
   const [editingId, setEditingId] = useState<string | undefined>();
   const [migrationSourceId, setMigrationSourceId] = useState<string | undefined>();
   const [migrationTargetId, setMigrationTargetId] = useState('');
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | undefined>();
   const [pendingProbe, setPendingProbe] = useState<PendingProbe | null>(null);
   const [pendingMutation, setPendingMutation] = useState<PendingMutation | null>(null);
   const [probeFeedback, setProbeFeedback] = useState<{ result: SshHostTestResult; label: string } | null>(null);
@@ -102,6 +103,10 @@ export default function SshHostManager({
     if (pendingMutation) {
       return;
     }
+    if (deleteCandidateId) {
+      setDeleteCandidateId(undefined);
+      return;
+    }
     if (draft) {
       setDraft(null);
       setEditingId(undefined);
@@ -113,7 +118,7 @@ export default function SshHostManager({
       return;
     }
     onClose();
-  }, [draft, migrationSourceId, onClose, pendingMutation]);
+  }, [deleteCandidateId, draft, migrationSourceId, onClose, pendingMutation]);
 
   useEffect(() => {
     initialFocusRef.current?.focus();
@@ -124,20 +129,6 @@ export default function SshHostManager({
       nameInputRef.current?.focus();
     }
   }, [draft, editingId]);
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
-      cancelTransientOrClose();
-    };
-    document.addEventListener('keydown', handleEscape, true);
-    return () => document.removeEventListener('keydown', handleEscape, true);
-  }, [cancelTransientOrClose]);
 
   useEffect(() => {
     if (
@@ -257,29 +248,15 @@ export default function SshHostManager({
     onPostMessage({ type: 'testSshHost', payload: host, requestId });
   };
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[10000] overflow-y-auto p-3 sm:p-5"
-      style={{
-        background: 'radial-gradient(circle at top, rgba(59,130,246,0.16), transparent 35%), rgba(3, 7, 18, 0.66)',
-        backdropFilter: 'blur(18px)'
-      }}
-      onMouseDown={event => {
-        if (event.target === event.currentTarget && !draft && !migrationSourceId) {
-          cancelTransientOrClose();
-        }
-      }}
+  return (
+    <ModalSurface
+      id="ssh-host-manager"
+      labelId="ssh-host-manager-title"
+      onRequestClose={cancelTransientOrClose}
+      dismissible={!pendingMutation}
+      maxWidth="1024px"
+      className="ssh-host-modal"
     >
-      <div className="min-h-full flex items-start justify-center py-3 sm:py-8">
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="ssh-host-manager-title"
-          aria-busy={Boolean(pendingMutation || pendingProbe)}
-          className="glass-panel glow-border rounded-3xl border w-full max-w-4xl overflow-hidden"
-          style={{ backgroundColor: panelBackground, borderColor }}
-          onMouseDown={event => event.stopPropagation()}
-        >
           <header className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 p-5 sm:p-6 border-b" style={{ borderColor }}>
             <div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -302,7 +279,7 @@ export default function SshHostManager({
             </div>
           </header>
 
-          <div className="p-5 sm:p-6 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
+          <div className="modal-body p-5 sm:p-6 space-y-4" aria-busy={Boolean(pendingMutation || pendingProbe)} style={{ backgroundColor: panelBackground }}>
             {operationFeedback && (
               <div aria-live="polite" className="glass-card rounded-xl px-3.5 py-2.5 text-sm" style={{
                 color: operationFeedback.success ? '#10b981' : '#ef4444',
@@ -429,24 +406,35 @@ export default function SshHostManager({
                           style={{ ...secondaryButtonStyle, color: references ? alpha(theme.foreground, 0.45) : '#ef4444', cursor: references ? 'not-allowed' : 'pointer' }}
                           disabled={references > 0 || Boolean(pendingMutation)}
                           title={references ? 'Migrate or unlink referenced projects before deleting this Host' : 'Delete Host'}
-                          onClick={() => {
-                            if (!references && window.confirm(`Delete SSH Host "${host.name}"?`)) {
-                              postMutation('deleteSshHost', { id: host.id }, 'delete', host.id);
-                            }
-                          }}
+                          onClick={() => !references && setDeleteCandidateId(host.id)}
                         >
                           Delete
                         </button>
                       </div>
+                      {deleteCandidateId === host.id && (
+                        <div className="mt-3 rounded-xl border p-3" style={{ borderColor: alpha('#ef4444', 0.38), backgroundColor: alpha('#ef4444', 0.08) }}>
+                          <p className="text-sm" style={{ color: theme.foreground }}>Delete <strong>{host.name}</strong>? This cannot be undone.</p>
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <button className="soft-button px-3 py-2 rounded-lg text-xs" style={secondaryButtonStyle} onClick={() => setDeleteCandidateId(undefined)}>Cancel</button>
+                            <button
+                              className="soft-button px-3 py-2 rounded-lg text-xs"
+                              style={{ backgroundColor: '#dc2626', color: '#fff' }}
+                              onClick={() => {
+                                setDeleteCandidateId(undefined);
+                                postMutation('deleteSshHost', { id: host.id }, 'delete', host.id);
+                              }}
+                            >
+                              Delete Host
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </article>
                   );
                 })}
               </div>
             )}
           </div>
-        </section>
-      </div>
-    </div>,
-    document.body
+    </ModalSurface>
   );
 }
