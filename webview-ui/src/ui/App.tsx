@@ -5,7 +5,9 @@ import { FavoriteProjectsRail, ProjectLayout } from './ProjectLayouts';
 import {
   fromStoredViewMode,
   layoutOptions,
+  normalizeCollapsedGroups,
   toStoredViewMode,
+  toggleCollapsedGroup,
   type ManagerLayout
 } from './managerLayout';
 import type {
@@ -459,6 +461,7 @@ export default function App() {
   const [sortBy, setSortBy] = useState<SortBy>('name');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([]);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showByGroup, setShowByGroup] = useState(true);
@@ -501,6 +504,7 @@ export default function App() {
           if (newState.uiSettings.selectedGroup !== undefined) {
             setSelectedGroup(newState.uiSettings.selectedGroup);
           }
+          setCollapsedGroups(normalizeCollapsedGroups(newState.uiSettings.collapsedGroups));
         }
         
         if (newState.config?.autoOpenFullscreen !== undefined) {
@@ -737,6 +741,13 @@ export default function App() {
     setSshHostOperationResult(null);
     setSshHostTestResult(null);
   };
+  const toggleProjectGroup = (groupName: string) => {
+    setCollapsedGroups(current => {
+      const next = toggleCollapsedGroup(current, groupName);
+      updateUISettings({ collapsedGroups: next });
+      return next;
+    });
+  };
 
   const headerStacked = windowWidth < 920;
   const actionStacked = windowWidth < 560;
@@ -773,7 +784,12 @@ export default function App() {
       >
         <div className="relative z-10 flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="manager-brand-mark" aria-hidden="true">⌁</span>
+            <span className="manager-brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor">
+                <rect x="2.5" y="3" width="15" height="11" rx="2" strokeWidth="1.5" />
+                <path d="m6 7 2 2-2 2m4.5 0h3M7 17h6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
             <h1 className="text-lg font-semibold tracking-tight truncate" style={{ color: theme.foreground }}>Project Pilot</h1>
           </div>
           <span className="text-xs tabular-nums" style={{ color: toAlpha(theme.foreground, 0.58) }}>
@@ -782,8 +798,8 @@ export default function App() {
         </div>
         
         {/* Search Bar */}
-        <div className={`relative z-10 flex ${actionStacked ? 'flex-col' : 'gap-2 items-center'} mb-3`}>
-          <div className="relative flex-1">
+        <div className={`manager-actions relative z-10 flex ${actionStacked ? 'flex-col' : 'gap-2 items-center'} mb-3`}>
+          <div className="manager-search relative flex-1">
             <input 
               className="soft-input w-full pl-10 pr-10 py-2.5 text-sm rounded-xl border focus:ring-2 focus:border-transparent transition-all" 
               style={{
@@ -844,7 +860,11 @@ export default function App() {
             onClick={openSshHostManager}
             title="Manage reusable SSH Hosts"
           >
-            <span aria-hidden="true">⌁</span>
+            <svg className="ssh-host-button__icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+              <rect x="2.5" y="3" width="15" height="11" rx="2" strokeWidth="1.5" />
+              <path d="m6 7 2 2-2 2m4.5 0h3" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M7 17h6" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
             <span>SSH Hosts</span>
             <span className="stat-chip px-2 py-0.5 rounded-full text-[11px]" style={{ color: theme.foreground }}>
               {state.sshHosts.length}
@@ -1252,41 +1272,54 @@ export default function App() {
           </div>
         ) : showByGroup ? (
           <div className="space-y-3">
-            {Object.entries(groupedProjects).map(([groupName, projects]) => (
-              <section key={groupName} className="project-group">
-                <div className="project-group__header">
-                  <h3 className="text-base font-semibold" style={{ color: theme.foreground }}>
-                    {groupName}
-                  </h3>
-                  <span className="stat-chip text-sm px-2.5 py-1 rounded-full" style={{ 
-                    backgroundColor: toAlpha(theme.listHoverBackground, 0.6), 
-                    color: theme.foreground
-                  }}>
-                    {projects.length}
-                  </span>
-                </div>
-                <ProjectLayout layout={layout}>
-                  {projects.map(p => (
-                    <Card 
-                      key={p.id ?? p.path} 
-                      p={p} 
-                      layout={layout}
-                      theme={theme}
-                      allGroups={allGroups}
-                      sshHosts={state.sshHosts}
-                      onManageSshHosts={openSshHostManager}
-                      onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
-                      onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
-                      onOpen={() => {
-                        recordProjectAccess(p.id!);
-                        vscode.postMessage({ type: 'open', payload: p });
-                      }}
-                      onToggleFavorite={toggleProjectFavorite}
-                    />
-        ))}
-                </ProjectLayout>
-              </section>
-            ))}
+            {Object.entries(groupedProjects).map(([groupName, projects]) => {
+              const isCollapsed = collapsedGroups.includes(groupName);
+              return (
+                <section key={groupName} className="project-group" data-collapsed={isCollapsed}>
+                  <button
+                    className="project-group__header"
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleProjectGroup(groupName)}
+                  >
+                    <svg className="project-group__chevron" data-collapsed={isCollapsed} viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+                      <path d="m6 8 4 4 4-4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <h3 className="text-base font-semibold" style={{ color: theme.foreground }}>
+                      {groupName}
+                    </h3>
+                    <span className="stat-chip text-sm px-2.5 py-1 rounded-full" style={{
+                      backgroundColor: toAlpha(theme.listHoverBackground, 0.6),
+                      color: theme.foreground
+                    }}>
+                      {projects.length}
+                    </span>
+                  </button>
+                  {!isCollapsed && (
+                    <ProjectLayout layout={layout}>
+                      {projects.map(p => (
+                        <Card
+                          key={p.id ?? p.path}
+                          p={p}
+                          layout={layout}
+                          theme={theme}
+                          allGroups={allGroups}
+                          sshHosts={state.sshHosts}
+                          onManageSshHosts={openSshHostManager}
+                          onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })}
+                          onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
+                          onOpen={() => {
+                            recordProjectAccess(p.id!);
+                            vscode.postMessage({ type: 'open', payload: p });
+                          }}
+                          onToggleFavorite={toggleProjectFavorite}
+                        />
+                      ))}
+                    </ProjectLayout>
+                  )}
+                </section>
+              );
+            })}
           </div>
         ) : (
           <ProjectLayout layout={layout}>

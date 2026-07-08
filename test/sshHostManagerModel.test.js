@@ -55,7 +55,7 @@ assert.equal(model.countHostReferences(projects, 'alpha'), 3, 'counts every stor
 assert.equal(model.countHostReferences(projects, 'missing'), 0);
 
 assert.equal(model.formatSshHostAddress(hosts[0]), 'dev@10.1.2.3:2222');
-assert.equal(model.formatSshHostAddress(hosts[1]), 'qa.internal:default');
+assert.equal(model.formatSshHostAddress(hosts[1]), 'qa.internal');
 assert.equal(
   model.formatSshHostAddress({ id: 'v6', name: 'IPv6', hostname: '2001:db8::1', port: 22 }),
   '[2001:db8::1]:22',
@@ -63,7 +63,7 @@ assert.equal(
 );
 assert.equal(
   model.formatSshHostAddress({ id: 'v6-default', name: 'IPv6 default', hostname: '2001:db8::2' }),
-  '[2001:db8::2]:default'
+  '[2001:db8::2]'
 );
 
 assert.equal(model.validateSshHostDraft({ name: '', hostname: 'example.com', username: '', port: '' }, hosts), 'Host name is required.');
@@ -184,5 +184,15 @@ const warningA = [{ projectId: 'one', projectName: 'One', message: 'Needs migrat
 const warningB = [{ projectId: 'one', projectName: 'One', message: 'Changed warning' }];
 assert.equal(model.getMigrationWarningSignature([]), '');
 assert.notEqual(model.getMigrationWarningSignature(warningA), model.getMigrationWarningSignature(warningB));
+
+const newDraftFocusKey = model.getHostDraftFocusKey({ name: '', hostname: '', username: '', port: '' });
+assert.equal(newDraftFocusKey, 'new-host');
+assert.equal(
+  model.getHostDraftFocusKey({ name: '', hostname: '', username: 'n', port: '' }),
+  newDraftFocusKey,
+  'typing in a Host draft must not produce a new autofocus key'
+);
+assert.equal(model.getHostDraftFocusKey({ name: 'Edit', hostname: 'host', username: '', port: '' }, 'host-1'), 'host-1');
+assert.equal(model.getHostDraftFocusKey(null, 'host-1'), null);
 
 console.log('sshHostManagerModel tests passed');

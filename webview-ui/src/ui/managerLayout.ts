@@ -36,3 +36,31 @@ export function normalizeManagerLayout(value: unknown): ManagerLayout {
     ? value
     : 'command';
 }
+
+export function normalizeCollapsedGroups(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      continue;
+    }
+    const group = item.trim();
+    if (group && !result.includes(group)) {
+      result.push(group);
+    }
+  }
+  return result;
+}
+
+export function toggleCollapsedGroup(groups: readonly string[], groupName: string): string[] {
+  const normalized = normalizeCollapsedGroups(groups);
+  const group = groupName.trim();
+  if (!group) {
+    return normalized;
+  }
+  return normalized.includes(group)
+    ? normalized.filter(item => item !== group)
+    : [...normalized, group];
+}

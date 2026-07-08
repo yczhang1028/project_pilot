@@ -24,7 +24,8 @@ export function formatSshHostAddress(host: Pick<SshHost, 'hostname' | 'username'
   const displayHostname = hostname.includes(':') && !hostname.startsWith('[')
     ? `[${hostname}]`
     : hostname;
-  return `${host.username?.trim() ? `${host.username.trim()}@` : ''}${displayHostname}:${host.port ?? 'default'}`;
+  const authority = `${host.username?.trim() ? `${host.username.trim()}@` : ''}${displayHostname}`;
+  return host.port === undefined ? authority : `${authority}:${host.port}`;
 }
 
 export function validateSshHostDraft(
@@ -73,6 +74,10 @@ export function sshHostFromDraft(id: string, draft: SshHostDraft): SshHost {
 
 export function getMigrationTargets(hosts: readonly SshHost[], sourceId: string): SshHost[] {
   return hosts.filter(host => host.id !== sourceId);
+}
+
+export function getHostDraftFocusKey(draft: SshHostDraft | null, editingId?: string): string | null {
+  return draft ? editingId ?? 'new-host' : null;
 }
 
 export function validateManagedProjectFields(

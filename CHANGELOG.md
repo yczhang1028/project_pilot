@@ -10,6 +10,9 @@ All notable changes to the "Project Pilot" extension will be documented in this 
 - **Selective Glass System**: Concentrated frosted material on the command bar, group surfaces, and dialogs while keeping project rows and controls crisp.
 - **Unified Modal Stack**: Project Editor and SSH Hosts now share deterministic nested layers, topmost-only Escape handling, focus containment and restoration, and one scroll lock.
 - **Zoom and Scroll Safety**: Dialogs use dynamic viewport sizing and a single scroll owner for narrow windows and browser zoom.
+- **Collapsible Groups**: Every grouped Manager layout can collapse groups, with state preserved across layout switches and reloads.
+- **Clearer SSH Host UI**: Replaced the ambiguous Host prefix glyph, omitted the internal `:default` port label, and prevented Host form typing from stealing focus back to Name.
+- **Project Pilot Output Channel**: Registered a dedicated Output channel for activation, SSH Host operations, and connection-test diagnostics.
 
 ## [2.0.2] - 2026-03-10
 

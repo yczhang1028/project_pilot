@@ -33,6 +33,7 @@ export interface UISettings {
   compactMode?: boolean;
   viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;
+  collapsedGroups?: string[];
   outlineMode?: 'group' | 'host' | 'type' | 'flat';
 }
 
@@ -70,7 +71,8 @@ export class ConfigStore {
     return this._state.uiSettings || {
       compactMode: false,
       viewMode: 'mini',
-      selectedGroup: ''
+      selectedGroup: '',
+      collapsedGroups: []
     };
   }
 
@@ -156,6 +158,12 @@ export class ConfigStore {
     }
     if (settings.selectedGroup !== undefined && typeof settings.selectedGroup !== 'string') {
       throw new Error('Invalid uiSettings.selectedGroup: expected a string');
+    }
+    if (
+      settings.collapsedGroups !== undefined
+      && (!Array.isArray(settings.collapsedGroups) || settings.collapsedGroups.some(group => typeof group !== 'string'))
+    ) {
+      throw new Error('Invalid uiSettings.collapsedGroups: expected an array of strings');
     }
     const outlineModes = allowLegacyTarget
       ? ['group', 'target', 'host', 'type', 'flat']
@@ -373,6 +381,7 @@ export class ConfigStore {
           compactMode: false,
           viewMode: 'mini',
           selectedGroup: '',
+          collapsedGroups: [],
           outlineMode: 'group'
         }
       };
@@ -530,6 +539,7 @@ export class ConfigStore {
           compactMode: false,
           viewMode: 'mini',
           selectedGroup: '',
+          collapsedGroups: [],
           outlineMode: 'group'
         };
       }

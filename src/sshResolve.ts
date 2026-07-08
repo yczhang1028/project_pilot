@@ -346,7 +346,7 @@ function buildProbeFailureMessage(hostName: string, code: Exclude<SshProbeCode, 
     case 'host-key':
       return `${prefix} failed host-key verification. Review the saved host key before retrying.`;
     case 'auth':
-      return `${prefix} authentication failed. Password-only Hosts cannot pass this non-interactive BatchMode probe.`;
+      return `${prefix} was reached, but non-interactive authentication failed. Password-only Hosts cannot pass this BatchMode probe; configure an SSH key or agent, or verify the username.`;
     case 'remote-command':
       return `${prefix} transport and authentication may have succeeded, but the remote command failed or is restricted.`;
   }

@@ -28,6 +28,9 @@ reloads. Existing `mini`, `list`, and `grid` configuration values map to
 Command, Explorer, and Gallery respectively. Layouts now own their responsive
 density, so there is no separate Compact toggle.
 
+When projects are grouped, click any group header or chevron to collapse or
+expand it. Collapsed groups persist across layout switches and VS Code reloads.
+
 ### Main interactions
 
 - Search by name, description, path, or tags
@@ -59,6 +62,16 @@ project. The remote paths on those projects do not change.
 The Host panel also shows each Host's linked-project count. A referenced Host
 cannot be deleted. Migrate its projects to another Host first; migration keeps
 each project's remote path. Empty Hosts can be deleted directly.
+
+Host addresses omit a port when none is explicitly configured. For example,
+`dev@build-box` means OpenSSH configuration or the SSH default decides the
+port; `dev@build-box:2222` means Project Pilot explicitly passes port 2222.
+
+Connection tests use a bounded, non-interactive OpenSSH probe with
+`BatchMode=yes`. Password-only Hosts therefore report an authentication failure
+even when an interactive password login would work. Configure a key or SSH
+agent to make this probe succeed. Test results and Host operations are also
+written to the dedicated `Project Pilot` channel in VS Code's Output panel.
 
 ## Outline
 

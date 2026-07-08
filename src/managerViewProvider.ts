@@ -10,6 +10,7 @@ import {
   testSubmittedSshProjectConnection
 } from './sshProjectRuntime';
 import { buildRemoteSshUri } from './sshPath';
+import { logSshConnectionResult, logSshHostResult } from './outputChannel';
 
 export class ManagerViewProvider implements vscode.WebviewViewProvider {
   private currentView?: vscode.WebviewView;
@@ -25,6 +26,7 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
 
       const hostResult = await handleSshHostMessage(msg, this.store);
       if (hostResult) {
+        logSshHostResult(hostResult);
         await webviewView.webview.postMessage(hostResult);
         return;
       }
@@ -58,6 +60,7 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
           this.store.state.projects,
           this.store.state.sshHosts
         );
+        logSshConnectionResult(typeof msg.payload?.name === 'string' ? msg.payload.name : 'project', result);
         webviewView.webview.postMessage({ type: 'connectionTestResult', payload: result });
       } else if (msg.type === 'resolveSshTarget') {
         const result = await resolveSshTargetPayload(msg.payload, this.store.state.sshHosts);

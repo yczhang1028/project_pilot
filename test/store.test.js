@@ -1103,6 +1103,8 @@ async function expectReject(action, pattern) {
       [{ compactMode: 'yes' }, /compactMode/i],
       [{ viewMode: 'bogus' }, /viewMode/i],
       [{ selectedGroup: 42 }, /selectedGroup/i],
+      [{ collapsedGroups: 'Automation' }, /collapsedGroups/i],
+      [{ collapsedGroups: ['Automation', 42] }, /collapsedGroups/i],
       [{ outlineMode: 'bogus' }, /outlineMode/i]
     ];
     for (let index = 0; index < badSettings.length; index += 1) {

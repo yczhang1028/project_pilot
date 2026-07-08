@@ -53,5 +53,13 @@ assert.deepEqual(
   model.layoutOptions.map(option => [option.id, option.stored]),
   [['command', 'mini'], ['explorer', 'list'], ['gallery', 'grid']]
 );
+assert.deepEqual(model.normalizeCollapsedGroups(undefined), []);
+assert.deepEqual(
+  model.normalizeCollapsedGroups([' Automation ', 'Sanity', 'Automation', '', 42]),
+  ['Automation', 'Sanity']
+);
+assert.deepEqual(model.toggleCollapsedGroup([], 'Automation'), ['Automation']);
+assert.deepEqual(model.toggleCollapsedGroup(['Automation', 'Sanity'], 'Automation'), ['Sanity']);
+assert.deepEqual(model.toggleCollapsedGroup(['Sanity'], ' Automation '), ['Sanity', 'Automation']);
 
 console.log('managerLayout tests passed');

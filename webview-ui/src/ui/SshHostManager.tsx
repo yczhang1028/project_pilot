@@ -11,6 +11,7 @@ import type {
 import {
   countHostReferences,
   formatSshHostAddress,
+  getHostDraftFocusKey,
   getMigrationTargets,
   sshHostFromDraft,
   validateSshHostDraft
@@ -99,6 +100,7 @@ export default function SshHostManager({
     () => migrationSourceId ? getMigrationTargets(hosts, migrationSourceId) : [],
     [hosts, migrationSourceId]
   );
+  const draftFocusKey = getHostDraftFocusKey(draft, editingId);
   const cancelTransientOrClose = useCallback(() => {
     if (pendingMutation) {
       return;
@@ -125,10 +127,10 @@ export default function SshHostManager({
   }, []);
 
   useEffect(() => {
-    if (draft) {
+    if (draftFocusKey) {
       nameInputRef.current?.focus();
     }
-  }, [draft, editingId]);
+  }, [draftFocusKey]);
 
   useEffect(() => {
     if (
@@ -374,7 +376,10 @@ export default function SshHostManager({
 
             {hosts.length === 0 ? (
               <div className="text-center py-12 rounded-2xl border border-dashed" style={{ borderColor, color: alpha(theme.foreground, 0.7) }}>
-                <div className="text-3xl mb-3">⌁</div>
+                <svg className="w-8 h-8 mx-auto mb-3" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
+                  <rect x="2.5" y="3" width="15" height="11" rx="2" strokeWidth="1.5" />
+                  <path d="m6 7 2 2-2 2m4.5 0h3M7 17h6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
                 <p className="font-medium" style={{ color: theme.foreground }}>No SSH Hosts yet</p>
                 <p className="text-sm mt-1">Add one connection, then reuse it for any SSH project.</p>
               </div>

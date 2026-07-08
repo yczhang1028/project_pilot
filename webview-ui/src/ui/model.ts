@@ -30,6 +30,7 @@ export interface UISettings {
   compactMode?: boolean;
   viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;
+  collapsedGroups?: string[];
   outlineMode?: 'group' | 'target' | 'host' | 'type' | 'flat';
 }
 

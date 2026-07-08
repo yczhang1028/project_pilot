@@ -16,6 +16,12 @@ import { getCurrentRemoteStatus } from './remoteContext';
 import { handleSshHostMessage } from './sshHostMessages';
 import { ConfigStore, ProjectItem, ProjectType } from './store';
 import {
+  initializeProjectPilotOutput,
+  logSshConnectionResult,
+  logSshHostResult,
+  writeProjectPilotOutput
+} from './outputChannel';
+import {
   detectProjectTypeFromPath,
   normalizeProjectItemForStorage,
   normalizeProjectPathForStorage,
@@ -39,10 +45,13 @@ import {
 } from './sshProjectRuntime';
 
 export async function activate(context: vscode.ExtensionContext) {
+  initializeProjectPilotOutput(context);
+  writeProjectPilotOutput('INFO', 'Extension activating.');
   console.log('Project Pilot: Extension activating...');
   const store = new ConfigStore(context);
   globalStore = store; // 保存全局引用以便清理
   await store.init();
+  writeProjectPilotOutput('INFO', `Configuration initialized with ${store.state.projects.length} projects and ${store.state.sshHosts.length} SSH Hosts.`);
   console.log('Project Pilot: Store initialized with', store.state.projects.length, 'projects');
 
   const managerProvider = new ManagerViewProvider(context, store);
@@ -1341,6 +1350,7 @@ async function handleWebviewMessage(
 ) {
   const hostResult = await handleSshHostMessage(msg, store);
   if (hostResult) {
+    logSshHostResult(hostResult);
     await webview.postMessage(hostResult);
     return;
   }
@@ -1476,6 +1486,7 @@ async function handleWebviewMessage(
       store.state.projects,
       store.state.sshHosts
     );
+    logSshConnectionResult(typeof msg.payload?.name === 'string' ? msg.payload.name : 'project', result);
     webview.postMessage({ type: 'connectionTestResult', payload: result });
   } else if (msg.type === 'resolveSshTarget') {
     const result = await resolveSshTargetPayload(msg.payload, store.state.sshHosts);

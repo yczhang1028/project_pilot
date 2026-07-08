@@ -14,6 +14,7 @@ The change is presentation-focused. Search, sorting, filtering, grouping, favori
 - Keep all three previously proposed layouts.
 - Use the third refined mockup, `F · Liquid Gallery`, as the shared visual style.
 - Make the three layouts directly switchable from the Manager command bar.
+- Allow every grouped layout to collapse and expand individual groups, with persisted state.
 - Simplify the interface rather than retaining a separate density matrix.
 - Preserve every existing Manager feature while changing presentation.
 - Treat modal stacking, z-index, zoom, viewport sizing, and scroll ownership as core requirements rather than follow-up polish.
@@ -122,6 +123,7 @@ Every layout must support the same actions and state:
 - sort by name, type, recent access, and frequency;
 - tag and group filtering;
 - grouped or flat display;
+- persisted group collapse in Command, Explorer, and Gallery;
 - custom-group or target/Host grouping;
 - favorites-only filtering and favorite toggling;
 - opening and access recording;

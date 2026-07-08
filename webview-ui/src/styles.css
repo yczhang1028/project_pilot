@@ -311,6 +311,11 @@ body::after {
   background: color-mix(in srgb, var(--vscode-focusBorder, #38bdf8) 10%, transparent);
 }
 
+.manager-brand-mark svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 .layout-switcher {
   display: flex;
   flex: 0 0 auto;
@@ -431,7 +436,36 @@ body::after {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  width: 100%;
   margin-bottom: 0.65rem;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-group[data-collapsed='true'] .project-group__header {
+  margin-bottom: 0;
+}
+
+.project-group__chevron {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  color: color-mix(in srgb, var(--vscode-foreground, #e5e7eb) 62%, transparent);
+  transition: transform 160ms ease;
+}
+
+.project-group__chevron[data-collapsed='true'] {
+  transform: rotate(-90deg);
+}
+
+.project-group__header:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #38bdf8);
+  outline-offset: 0.35rem;
+  border-radius: 0.35rem;
 }
 
 .project-layout {
@@ -562,6 +596,13 @@ body::after {
   background: color-mix(in srgb, var(--vscode-list-hoverBackground, #1f2937) 82%, transparent);
 }
 
+.ssh-host-button__icon {
+  flex: 0 0 auto;
+  width: 1.05rem;
+  height: 1.05rem;
+  stroke-width: 1.5;
+}
+
 .project-tile--explorer {
   display: flex;
   min-height: 3.45rem;
@@ -612,6 +653,15 @@ body::after {
 }
 
 @media (max-width: 760px) {
+  .manager-actions {
+    flex-wrap: wrap;
+  }
+
+  .manager-search {
+    flex: 1 1 100%;
+    min-width: 100%;
+  }
+
   .layout-switcher__label {
     display: none;
   }
