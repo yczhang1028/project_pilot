@@ -2,7 +2,7 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
-## [Unreleased]
+## [3.0.0] - 2026-07-08
 
 ### ✨ Manager Layout Refresh
 - **Three Named Layouts**: Replaced the Grid/List/Mini presentation with switchable Command, Explorer, and Gallery experiences while retaining the stored values for compatibility.

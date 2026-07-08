@@ -11,8 +11,10 @@ webview-ui/tsconfig.json
 # Development files
 .vscode/**
 .vscode-test/**
+.superpowers/**
 node_modules/**
 *.vsix
+test/**
 
 # Build artifacts
 out/test/**
@@ -23,6 +25,7 @@ src/test/**
 # Documentation and media (keep only essential)
 # media/demo/** - Keep demo images for README
 .cursor/**
+docs/**
 
 # Git and project files
 .git/**
