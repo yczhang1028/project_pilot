@@ -163,6 +163,18 @@ Typical location:
 
 Use `Project Pilot: Sync Configuration` as the main entry for these workflows.
 
+### Startup performance diagnostics
+
+Open VS Code's Output panel and select `Project Pilot` to inspect local startup
+timings. The channel separates Extension activation milestones from the first
+ready render of the sidebar and fullscreen Managers. These measurements stay on
+the local machine and are not transmitted as telemetry.
+
+For a useful comparison, collect at least two cold launches and two warm
+launches with `projectPilot.autoOpenFullscreen` enabled, then repeat with it
+disabled. Compare the individual `activation`, `sidebar`, and `fullscreen`
+phases instead of relying on a single total duration.
+
 Exports use schema version 2 and include `sshHosts`, each managed project's
 `sshHostId` and `remotePath`, and a regenerated full `path` compatibility
 snapshot. Imports remain compatible with schema version 2, the earlier
