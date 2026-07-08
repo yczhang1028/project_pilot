@@ -386,7 +386,7 @@ try {
   );
   assert.strictEqual(
     deleteMenu.when,
-    'view == projectPilot.outline && viewItem == outline-host-unused'
+    'view == projectPilot.outline && viewItem =~ /^outline-host-(used|unused)$/'
   );
 
   console.log('outlineTreeProvider tests passed');

@@ -53,6 +53,12 @@ const projects = [
 
 assert.equal(model.countHostReferences(projects, 'alpha'), 3, 'counts every stored Host reference so delete safety matches the Store');
 assert.equal(model.countHostReferences(projects, 'missing'), 0);
+assert.deepEqual(
+  model.getHostDeleteImpact(projects, 'alpha'),
+  { count: 3, projectNames: ['One', 'Two', 'Four'] },
+  'delete confirmation names every project that will be deleted with the Host'
+);
+assert.deepEqual(model.getHostDeleteImpact(projects, 'missing'), { count: 0, projectNames: [] });
 
 assert.equal(model.formatSshHostAddress(hosts[0]), 'dev@10.1.2.3:2222');
 assert.equal(model.formatSshHostAddress(hosts[1]), 'qa.internal');

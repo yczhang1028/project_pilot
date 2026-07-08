@@ -5,6 +5,7 @@ import { ManagerViewProvider } from './managerViewProvider';
 import {
   captureSshHostMigrationProjectIds,
   displayHostName,
+  formatSshHostDeleteDetail,
   formatSshHostProbeFailure,
   formatSshHostProgressTitle,
   formatUnexpectedSshHostProbeFailure,
@@ -935,25 +936,25 @@ export async function activate(context: vscode.ExtensionContext) {
 
       const hostName = displayHostName(host.name);
       const linkedProjects = store.state.projects.filter(project => project.sshHostId === host.id);
-      if (linkedProjects.length > 0) {
-        vscode.window.showErrorMessage(
-          `Cannot delete SSH Host "${hostName}" because it has ${linkedProjects.length} linked project${linkedProjects.length === 1 ? '' : 's'}`
-        );
-        return;
-      }
 
       const confirm = await vscode.window.showWarningMessage(
-        `Delete unused SSH Host "${hostName}"?`,
-        { modal: true },
-        'Delete'
+        `Delete SSH Host "${hostName}"?`,
+        {
+          modal: true,
+          detail: formatSshHostDeleteDetail(linkedProjects.map(project => project.name))
+        },
+        'Delete Host'
       );
-      if (confirm !== 'Delete') {
+      if (confirm !== 'Delete Host') {
         return;
       }
 
       try {
         await store.deleteSshHost(host.id);
-        vscode.window.showInformationMessage(`Deleted SSH Host "${hostName}"`);
+        const linkedSummary = linkedProjects.length > 0
+          ? ` and ${linkedProjects.length} linked project${linkedProjects.length === 1 ? '' : 's'}`
+          : '';
+        vscode.window.showInformationMessage(`Deleted SSH Host "${hostName}"${linkedSummary}`);
       } catch (error) {
         vscode.window.showErrorMessage(
           `Failed to delete SSH Host: ${sanitizeDisplayText(error instanceof Error ? error.message : String(error))}`

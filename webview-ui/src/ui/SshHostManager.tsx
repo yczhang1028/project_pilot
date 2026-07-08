@@ -9,8 +9,8 @@ import type {
   SshHostTestResult
 } from './model';
 import {
-  countHostReferences,
   formatSshHostAddress,
+  getHostDeleteImpact,
   getHostDraftFocusKey,
   getMigrationTargets,
   sshHostFromDraft,
@@ -386,7 +386,8 @@ export default function SshHostManager({
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {hosts.map(host => {
-                  const references = countHostReferences(projects, host.id);
+                  const deleteImpact = getHostDeleteImpact(projects, host.id);
+                  const references = deleteImpact.count;
                   return (
                     <article key={host.id} className="glass-card rounded-2xl p-4" style={{ backgroundColor: cardBackground, borderColor }}>
                       <div className="flex items-start justify-between gap-3">
@@ -408,17 +409,27 @@ export default function SshHostManager({
                         )}
                         <button
                           className="soft-button px-3 py-2 rounded-xl text-xs ml-auto"
-                          style={{ ...secondaryButtonStyle, color: references ? alpha(theme.foreground, 0.45) : '#ef4444', cursor: references ? 'not-allowed' : 'pointer' }}
-                          disabled={references > 0 || Boolean(pendingMutation)}
-                          title={references ? 'Migrate or unlink referenced projects before deleting this Host' : 'Delete Host'}
-                          onClick={() => !references && setDeleteCandidateId(host.id)}
+                          style={{ ...secondaryButtonStyle, color: '#ef4444' }}
+                          disabled={Boolean(pendingMutation)}
+                          title={references ? `Delete Host and ${references} linked project${references === 1 ? '' : 's'}` : 'Delete Host'}
+                          onClick={() => setDeleteCandidateId(host.id)}
                         >
                           Delete
                         </button>
                       </div>
                       {deleteCandidateId === host.id && (
                         <div className="mt-3 rounded-xl border p-3" style={{ borderColor: alpha('#ef4444', 0.38), backgroundColor: alpha('#ef4444', 0.08) }}>
-                          <p className="text-sm" style={{ color: theme.foreground }}>Delete <strong>{host.name}</strong>? This cannot be undone.</p>
+                          <p className="text-sm" style={{ color: theme.foreground }}>
+                            Delete <strong>{host.name}</strong>? This cannot be undone.
+                          </p>
+                          {deleteImpact.count > 0 && (
+                            <div className="mt-2 text-xs leading-5" style={{ color: alpha(theme.foreground, 0.78) }}>
+                              <p>This also permanently deletes {deleteImpact.count} linked project{deleteImpact.count === 1 ? '' : 's'}:</p>
+                              <ul className="mt-1 max-h-28 overflow-y-auto list-disc pl-5">
+                                {deleteImpact.projectNames.map((name, index) => <li key={`${host.id}-${index}`}>{name}</li>)}
+                              </ul>
+                            </div>
+                          )}
                           <div className="flex flex-wrap gap-2 mt-3">
                             <button className="soft-button px-3 py-2 rounded-lg text-xs" style={secondaryButtonStyle} onClick={() => setDeleteCandidateId(undefined)}>Cancel</button>
                             <button

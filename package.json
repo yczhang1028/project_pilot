@@ -363,7 +363,7 @@
           "group": "organization@1"
         },
         {
-          "when": "view == projectPilot.outline && viewItem == outline-host-unused",
+          "when": "view == projectPilot.outline && viewItem =~ /^outline-host-(used|unused)$/",
           "command": "projectPilot.deleteSshHostFromOutline",
           "group": "danger@1"
         }

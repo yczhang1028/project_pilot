@@ -563,13 +563,15 @@ async function expectReject(action, pattern) {
   {
     const linked = { id: 'linked', name: 'Linked Project', path: 'dev@one:/repo', type: 'ssh', sshHostId: 'one', remotePath: '/repo' };
     const { store } = await createStore(baseState([linked], [
-      { id: 'one', name: 'One', hostname: 'one' },
+      { id: 'one', name: 'One', hostname: 'one', username: 'dev' },
       { id: 'empty', name: 'Empty', hostname: 'empty' }
     ]));
-    await expectReject(() => store.deleteSshHost('one'), /Linked Project/);
+    await store.deleteSshHost('one');
+    assert.deepStrictEqual(store.state.sshHosts.map(host => host.id), ['empty']);
+    assert.deepStrictEqual(store.state.projects, [], 'deleting a used Host also deletes its linked projects');
     await expectReject(() => store.deleteSshHost('missing'), /not found/i);
     await store.deleteSshHost('empty');
-    assert.deepStrictEqual(store.state.sshHosts.map(host => host.id), ['one']);
+    assert.deepStrictEqual(store.state.sshHosts, []);
   }
 
   {

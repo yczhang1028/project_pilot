@@ -13,6 +13,7 @@ All notable changes to the "Project Pilot" extension will be documented in this 
 - **Collapsible Groups**: Every grouped Manager layout can collapse groups, with state preserved across layout switches and reloads.
 - **Clearer SSH Host UI**: Replaced the ambiguous Host prefix glyph, omitted the internal `:default` port label, and prevented Host form typing from stealing focus back to Name.
 - **Project Pilot Output Channel**: Registered a dedicated Output channel for activation, SSH Host operations, and connection-test diagnostics.
+- **Confirmed Host Deletion**: Referenced Hosts can now be deleted after an impact summary names the linked projects that will be removed with them.
 
 ## [2.0.2] - 2026-03-10
 

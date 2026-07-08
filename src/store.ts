@@ -575,10 +575,7 @@ export class ConfigStore {
       if (index < 0) {
         throw new Error(`SSH Host ${id} was not found`);
       }
-      const linked = state.projects.filter(project => project.sshHostId === id);
-      if (linked.length > 0) {
-        throw new Error(`SSH Host ${id} is used by projects: ${linked.map(project => project.name).join(', ')}`);
-      }
+      state.projects = state.projects.filter(project => project.sshHostId !== id);
       state.sshHosts.splice(index, 1);
     });
   }

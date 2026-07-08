@@ -19,6 +19,17 @@ export function countHostReferences(projects: readonly ProjectItem[], hostId: st
   return projects.filter(project => project.sshHostId === hostId).length;
 }
 
+export function getHostDeleteImpact(
+  projects: readonly ProjectItem[],
+  hostId: string
+): { count: number; projectNames: string[] } {
+  const linkedProjects = projects.filter(project => project.sshHostId === hostId);
+  return {
+    count: linkedProjects.length,
+    projectNames: linkedProjects.map(project => project.name)
+  };
+}
+
 export function formatSshHostAddress(host: Pick<SshHost, 'hostname' | 'username' | 'port'>): string {
   const hostname = host.hostname.trim();
   const displayHostname = hostname.includes(':') && !hostname.startsWith('[')

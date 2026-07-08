@@ -22,6 +22,14 @@ export function displayHostName(hostName: string): string {
   return sanitizeDisplayText(hostName) || 'Unnamed Host';
 }
 
+export function formatSshHostDeleteDetail(projectNames: readonly string[]): string {
+  if (projectNames.length === 0) {
+    return 'This Host has no linked projects.';
+  }
+  const names = projectNames.map(name => sanitizeDisplayText(name) || 'Unnamed project');
+  return `This also permanently deletes ${names.length} linked project${names.length === 1 ? '' : 's'}: ${names.join(', ')}`;
+}
+
 interface MigrationProject {
   id?: string;
   sshHostId?: string;

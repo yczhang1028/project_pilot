@@ -35,6 +35,16 @@ assert.strictEqual(
   'Failed to connect to SSH Host "Build Host". Check the connection settings and try again.'
 );
 
+assert.strictEqual(typeof actions.formatSshHostDeleteDetail, 'function');
+assert.strictEqual(
+  actions.formatSshHostDeleteDetail(['One', 'Two\r\nInjected']),
+  'This also permanently deletes 2 linked projects: One, Two Injected'
+);
+assert.strictEqual(
+  actions.formatSshHostDeleteDetail([]),
+  'This Host has no linked projects.'
+);
+
 async function testMigrationCapture() {
   assert.strictEqual(typeof actions.captureSshHostMigrationProjectIds, 'function');
   const captured = actions.captureSshHostMigrationProjectIds([

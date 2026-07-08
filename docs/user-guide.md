@@ -59,9 +59,10 @@ Editing a Host's hostname, IP address, username, or port immediately changes the
 resolved address used to open, browse, copy, display, and test every linked
 project. The remote paths on those projects do not change.
 
-The Host panel also shows each Host's linked-project count. A referenced Host
-cannot be deleted. Migrate its projects to another Host first; migration keeps
-each project's remote path. Empty Hosts can be deleted directly.
+The Host panel also shows each Host's linked-project count. Deleting a referenced
+Host requires confirmation that lists the affected projects, then atomically
+deletes the Host and those linked projects. Use Migrate first when the projects
+should be preserved on another Host; migration keeps each project's remote path.
 
 Host addresses omit a port when none is explicitly configured. For example,
 `dev@build-box` means OpenSSH configuration or the SSH default decides the
@@ -103,8 +104,8 @@ and Recent remain flat for quick access.
 - Favorite / unfavorite
 - Delete project
 - Test SSH connection for SSH entries
-- On Host nodes: edit the Host, test it, migrate its projects, or delete it when
-  it is unused
+- On Host nodes: edit the Host, test it, migrate its projects, or delete it with
+  an impact summary and confirmation
 
 ## SSH Support
 
