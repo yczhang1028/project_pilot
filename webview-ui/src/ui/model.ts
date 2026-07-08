@@ -26,6 +26,7 @@ export interface ProjectItem {
 }
 
 export interface UISettings {
+  /** @deprecated Layout density is now defined by the selected Manager layout. */
   compactMode?: boolean;
   viewMode?: 'grid' | 'list' | 'mini';
   selectedGroup?: string;

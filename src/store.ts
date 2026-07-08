@@ -69,7 +69,7 @@ export class ConfigStore {
   get uiSettings(): UISettings {
     return this._state.uiSettings || {
       compactMode: false,
-      viewMode: 'grid',
+      viewMode: 'mini',
       selectedGroup: ''
     };
   }
@@ -371,7 +371,7 @@ export class ConfigStore {
         ],
         uiSettings: {
           compactMode: false,
-          viewMode: 'grid',
+          viewMode: 'mini',
           selectedGroup: '',
           outlineMode: 'group'
         }
@@ -528,7 +528,7 @@ export class ConfigStore {
       if (!state.uiSettings) {
         state.uiSettings = {
           compactMode: false,
-          viewMode: 'grid',
+          viewMode: 'mini',
           selectedGroup: '',
           outlineMode: 'group'
         };

@@ -528,8 +528,9 @@
         "projectPilot.defaultView": {
           "type": "string",
           "enum": ["grid", "list", "mini"],
-          "default": "grid",
-          "description": "Default view mode for the project manager"
+          "default": "mini",
+          "enumDescriptions": ["Gallery", "Explorer", "Command"],
+          "description": "Default Manager layout: Gallery, Explorer, or Command"
         },
         "projectPilot.autoBackup": {
           "type": "boolean",
@@ -572,6 +573,7 @@
     "test:sshProjectRuntime": "npm run build:ext && node test/sshProjectRuntime.test.js",
     "test:sshHostMessages": "npm run build:ext && node test/sshHostMessages.test.js",
     "test:sshHostManagerModel": "node test/sshHostManagerModel.test.js",
+    "test:managerLayout": "node test/managerLayout.test.js",
     "test:store": "npm run build:ext && node test/store.test.js",
     "test:sshResolve": "npm run build:ext && node test/sshResolve.test.js",
     "watch": "npm run watch:ext",
