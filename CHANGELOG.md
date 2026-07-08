@@ -15,6 +15,7 @@ All notable changes to the "Project Pilot" extension will be documented in this 
 - **Project Pilot Output Channel**: Registered a dedicated Output channel for activation, SSH Host operations, and connection-test diagnostics.
 - **Confirmed Host Deletion**: Referenced Hosts can now be deleted after an impact summary names the linked projects that will be removed with them.
 - **Startup Performance Baseline**: Added local Output-channel timings for activation, Store initialization, provider registration, and the sidebar/fullscreen first-ready render.
+- **First-View Activation**: Manager, Outline, and their primary commands now activate Project Pilot immediately instead of waiting for `onStartupFinished`.
 
 ## [2.0.2] - 2026-03-10
 

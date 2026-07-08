@@ -39,7 +39,11 @@
   "homepage": "https://github.com/yczhang1028/project_pilot.git#readme",
   "license": "MIT",
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:projectPilot.manager",
+    "onView:projectPilot.outline",
+    "onCommand:projectPilot.showManager",
+    "onCommand:projectPilot.openFullscreen"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -576,6 +580,7 @@
     "test:managerLayout": "node test/managerLayout.test.js",
     "test:modalStack": "node test/modalStackModel.test.js",
     "test:outputChannel": "node test/outputChannel.test.js",
+    "test:activationEvents": "node test/activationEvents.test.js",
     "test:performanceReady": "node test/performanceReady.test.js",
     "test:startupPerformance": "npm run build:ext && node test/startupPerformance.test.js",
     "test:store": "npm run build:ext && node test/store.test.js",
