@@ -20,7 +20,8 @@ import {
   initializeProjectPilotOutput,
   logSshConnectionResult,
   logSshHostResult,
-  writeProjectPilotOutput
+  writeProjectPilotOutput,
+  writeStartupPerformance
 } from './outputChannel';
 import {
   detectProjectTypeFromPath,
@@ -44,14 +45,24 @@ import {
   testSubmittedSshProjectConnection,
   testSshProjectConnection
 } from './sshProjectRuntime';
+import {
+  createPerformanceTimeline,
+  createReadyReporter,
+  monotonicNow
+} from './startupPerformance';
 
 export async function activate(context: vscode.ExtensionContext) {
   initializeProjectPilotOutput(context);
+  const activationPerformance = createPerformanceTimeline(
+    'activation',
+    writeStartupPerformance
+  );
   writeProjectPilotOutput('INFO', 'Extension activating.');
   console.log('Project Pilot: Extension activating...');
   const store = new ConfigStore(context);
   globalStore = store; // 保存全局引用以便清理
   await store.init();
+  activationPerformance.mark('Store initialized');
   writeProjectPilotOutput('INFO', `Configuration initialized with ${store.state.projects.length} projects and ${store.state.sshHosts.length} SSH Hosts.`);
   console.log('Project Pilot: Store initialized with', store.state.projects.length, 'projects');
 
@@ -75,6 +86,7 @@ export async function activate(context: vscode.ExtensionContext) {
       outlineProvider.setExpandedState(event.element, false);
     })
   );
+  activationPerformance.mark('Providers registered');
 
   // 全屏视图面板引用
   let fullscreenPanel: vscode.WebviewPanel | undefined;
@@ -94,6 +106,7 @@ export async function activate(context: vscode.ExtensionContext) {
   if (autoOpenFullscreen) {
     // 延迟一点打开，确保扩展完全加载
     setTimeout(() => {
+      activationPerformance.mark('Auto fullscreen dispatched');
       vscode.commands.executeCommand('projectPilot.openFullscreen');
     }, 500);
   }
@@ -117,6 +130,12 @@ export async function activate(context: vscode.ExtensionContext) {
       }
 
       // 创建新的 Webview Panel
+      const fullscreenStartedAt = monotonicNow();
+      const fullscreenReady = createReadyReporter(
+        'fullscreen',
+        fullscreenStartedAt,
+        writeStartupPerformance
+      );
       fullscreenPanel = vscode.window.createWebviewPanel(
         'projectPilot.fullscreen',
         'Project Pilot',
@@ -136,6 +155,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
       // 处理消息
       fullscreenPanel.webview.onDidReceiveMessage(async (msg) => {
+        if (msg?.type === 'uiReady') {
+          fullscreenReady.report();
+          return;
+        }
         await handleWebviewMessage(msg, fullscreenPanel!.webview, store);
       });
 
@@ -968,6 +991,8 @@ export async function activate(context: vscode.ExtensionContext) {
       await testSshConnection(item.project);
     })
   );
+
+  activationPerformance.mark('Setup complete');
 
   function openProject(item: ProjectItem) {
     if (item.type === 'local') {

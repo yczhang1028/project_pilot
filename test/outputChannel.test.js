@@ -64,4 +64,11 @@ assert.match(lines[2], /\[INFO\] SSH Host update \[spark3\] completed$/);
 logger.logSshConnectionResult('Spark3 project', { success: false, message: 'authentication failed' }, now);
 assert.match(lines[3], /\[WARN\] SSH connection test \[Spark3 project\]: authentication failed$/);
 
+assert.equal(typeof logger.writeStartupPerformance, 'function');
+logger.writeStartupPerformance('Startup performance [activation] Setup complete: 42.0 ms');
+assert.match(
+  lines[4],
+  /\[INFO\] Startup performance \[activation\] Setup complete: 42\.0 ms$/
+);
+
 console.log('outputChannel tests passed');

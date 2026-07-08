@@ -10,18 +10,32 @@ import {
   testSubmittedSshProjectConnection
 } from './sshProjectRuntime';
 import { buildRemoteSshUri } from './sshPath';
-import { logSshConnectionResult, logSshHostResult } from './outputChannel';
+import {
+  logSshConnectionResult,
+  logSshHostResult,
+  writeStartupPerformance
+} from './outputChannel';
+import { createReadyReporter, monotonicNow } from './startupPerformance';
 
 export class ManagerViewProvider implements vscode.WebviewViewProvider {
   private currentView?: vscode.WebviewView;
   constructor(private readonly context: vscode.ExtensionContext, private readonly store: ConfigStore) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
+    const readyReporter = createReadyReporter(
+      'sidebar',
+      monotonicNow(),
+      writeStartupPerformance
+    );
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'webview-ui', 'dist')]
     };
     webviewView.webview.onDidReceiveMessage(async (msg) => {
+      if (msg?.type === 'uiReady') {
+        readyReporter.report();
+        return;
+      }
       console.log('Project Pilot: Received message from webview', getOwnMessageType(msg) ?? 'unknown');
 
       const hostResult = await handleSshHostMessage(msg, this.store);

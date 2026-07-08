@@ -22,6 +22,10 @@ export function writeProjectPilotOutput(
   outputChannel?.appendLine(`[${now.toISOString()}] [${level}] ${message}`);
 }
 
+export function writeStartupPerformance(message: string): void {
+  writeProjectPilotOutput('INFO', message);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>

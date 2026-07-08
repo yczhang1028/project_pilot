@@ -19,6 +19,7 @@ import type {
   State,
   UISettings
 } from './model';
+import { createUiReadyNotifier } from './performanceReady';
 import {
   createManagedSshConversionDraft,
   extractRemotePathForManagedProject,
@@ -480,6 +481,10 @@ export default function App() {
     () => getMigrationWarningSignature(state.migrationWarnings),
     [state.migrationWarnings]
   );
+  const uiReadyNotifierRef = useRef<ReturnType<typeof createUiReadyNotifier> | null>(null);
+  if (!uiReadyNotifierRef.current) {
+    uiReadyNotifierRef.current = createUiReadyNotifier(message => vscode.postMessage(message));
+  }
 
   useEffect(() => {
     if (!migrationWarningSignature) {
@@ -495,6 +500,7 @@ export default function App() {
         console.log('Project Pilot: Setting state', e.data.payload);
         const newState = normalizeUiState(e.data.payload as Partial<State> | undefined);
         setState(newState);
+        uiReadyNotifierRef.current?.notifyAfterRender();
         
         // 同步UI设置到本地状态
         if (newState.uiSettings) {
