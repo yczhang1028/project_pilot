@@ -574,6 +574,7 @@
     "test:sshHostMessages": "npm run build:ext && node test/sshHostMessages.test.js",
     "test:sshHostManagerModel": "node test/sshHostManagerModel.test.js",
     "test:managerLayout": "node test/managerLayout.test.js",
+    "test:modalStack": "node test/modalStackModel.test.js",
     "test:store": "npm run build:ext && node test/store.test.js",
     "test:sshResolve": "npm run build:ext && node test/sshResolve.test.js",
     "watch": "npm run watch:ext",

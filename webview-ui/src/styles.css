@@ -10,6 +10,68 @@ html, body, #root {
   min-height: 100%;
 }
 
+html[data-modal-open='true'],
+html[data-modal-open='true'] body {
+  overflow: hidden;
+}
+
+.modal-viewport {
+  --modal-gutter: clamp(0.75rem, 2.5vw, 2rem);
+  position: fixed;
+  inset: 0;
+  z-index: var(--modal-layer, 100);
+  display: grid;
+  place-items: start center;
+  overflow: hidden;
+  padding: var(--modal-gutter);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(14, 165, 233, 0.12), transparent 34%),
+    rgba(2, 8, 23, 0.72);
+  backdrop-filter: blur(14px) saturate(125%);
+}
+
+.modal-frame {
+  display: flex;
+  flex-direction: column;
+  inline-size: min(100%, var(--modal-max-width, 760px));
+  max-block-size: calc(100vh - 2 * var(--modal-gutter));
+  max-block-size: calc(100dvh - 2 * var(--modal-gutter));
+  overflow: hidden;
+  border-radius: clamp(0.85rem, 2vw, 1.35rem);
+  outline: none;
+}
+
+.modal-body {
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.liquid-panel {
+  border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, #38bdf8) 32%, transparent);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.055), transparent 42%),
+    color-mix(in srgb, var(--vscode-editor-background, #07111f) 90%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 24px 70px rgba(2, 8, 23, 0.46);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+@media (forced-colors: active) {
+  .modal-viewport,
+  .liquid-panel {
+    backdrop-filter: none;
+  }
+
+  .liquid-panel {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+}
+
 body {
   @apply text-sm;
   overflow-x: hidden;
