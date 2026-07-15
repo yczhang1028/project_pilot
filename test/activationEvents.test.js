@@ -6,7 +6,8 @@ const requiredEvents = [
   'onView:projectPilot.manager',
   'onView:projectPilot.outline',
   'onCommand:projectPilot.showManager',
-  'onCommand:projectPilot.openFullscreen'
+  'onCommand:projectPilot.openFullscreen',
+  'onCommand:projectPilot.toggleDemoMode'
 ];
 
 for (const event of requiredEvents) {

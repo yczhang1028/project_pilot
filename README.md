@@ -88,12 +88,30 @@ Commands are prefilled but not executed automatically. Review them, verify a rep
 4. Add reusable SSH Hosts when remote projects share connection details.
 5. Open Agent Assets to build the first environment inventory.
 
+## Screenshot Demo Mode
+
+Use the built-in demo mode when you need product screenshots without exposing local paths, usernames, Hosts, project names, icons, or agent configuration.
+
+1. Run `Project Pilot: Toggle Screenshot Demo Mode` from the Command Palette. The fullscreen Manager opens with fictional data.
+2. Choose Gallery, Explorer, or Command layout, or open Agent Assets and select a demo machine.
+3. Capture the screenshot at the window size you need.
+4. Run the same command again to restore your saved data.
+
+You can also enable it directly in Settings JSON:
+
+```json
+"projectPilot.demoMode": true
+```
+
+Demo mode is read-only and in-memory. Project edits, SSH operations, scans, file opens, and Agent launches are blocked; `projects.json` and the Agent Assets cache are not overwritten. A `DEMO DATA` badge remains visible so the fictional state cannot be mistaken for a real inventory.
+
 ## Main Commands
 
 | Command | Description | Shortcut |
 | --- | --- | --- |
 | `Project Pilot: Show Manager` | Show the sidebar Manager | `Ctrl+P Ctrl+P` |
 | `Project Pilot: Open Fullscreen View` | Open the Manager in an editor | `Ctrl+P Ctrl+F` |
+| `Project Pilot: Toggle Screenshot Demo Mode` | Show or hide fictional read-only screenshot data | - |
 | `Project Pilot: Add Local Folder` | Add a local folder | `Ctrl+P Ctrl+L` |
 | `Project Pilot: Add Current Folder` | Add the currently open folder | `Ctrl+P Ctrl+C` |
 | `Project Pilot: Add Workspace File` | Add a `.code-workspace` file | - |

@@ -337,6 +337,24 @@ body::after {
   height: 1.05rem;
 }
 
+.demo-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  margin-left: 0.38rem;
+  padding: 0.08rem 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, #70a7ff) 55%, transparent);
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--vscode-focusBorder, #70a7ff) 82%, white);
+  background: color-mix(in srgb, var(--vscode-focusBorder, #70a7ff) 12%, transparent);
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .layout-switcher {
   display: flex;
   flex: 0 0 auto;
@@ -768,6 +786,10 @@ body::after {
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+.agent-assets__eyebrow .demo-mode-badge {
+  vertical-align: middle;
 }
 
 .agent-assets__header-actions {

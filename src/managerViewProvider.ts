@@ -19,6 +19,7 @@ import {
 import { createReadyReporter, monotonicNow } from './startupPerformance';
 import { AgentAssetsService } from './agentAssets/inventoryService';
 import { handleAgentAssetsMessage } from './agentAssets/messages';
+import { getProjectPilotWebviewState, handleDemoModeMessage } from './demoMode';
 
 export class ManagerViewProvider implements vscode.WebviewViewProvider {
   private currentView?: vscode.WebviewView;
@@ -47,6 +48,10 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
 
       if (msg?.type === 'openAgentAssetsEditor') {
         await vscode.commands.executeCommand('projectPilot.openAgentAssets');
+        return;
+      }
+
+      if (await handleDemoModeMessage(msg, webviewView.webview)) {
         return;
       }
 
@@ -225,15 +230,9 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
   }
 
   postState(view?: vscode.WebviewView) {
-    const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
     const message = { 
       type: 'state', 
-      payload: { 
-        ...this.store.state,
-        projects: materializeRuntimeProjects(this.store.state.projects, this.store.state.sshHosts),
-        migrationWarnings: this.store.migrationWarnings,
-        config: { autoOpenFullscreen } 
-      } 
+      payload: getProjectPilotWebviewState(this.store)
     } as const;
     console.log('Project Pilot: Posting message to webview', message.type);
     (view ?? this.currentView)?.webview.postMessage(message);

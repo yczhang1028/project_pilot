@@ -36,6 +36,7 @@ export interface UISettings {
 
 export interface ConfigSettings {
   autoOpenFullscreen?: boolean;
+  demoMode?: boolean;
 }
 
 export interface SshMigrationWarning {

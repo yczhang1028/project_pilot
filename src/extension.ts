@@ -53,6 +53,12 @@ import {
 } from './startupPerformance';
 import { AgentAssetsService } from './agentAssets/inventoryService';
 import { handleAgentAssetsMessage } from './agentAssets/messages';
+import {
+  DEMO_MODE_SETTING,
+  getProjectPilotWebviewState,
+  handleDemoModeMessage,
+  isDemoModeEnabled
+} from './demoMode';
 
 export async function activate(context: vscode.ExtensionContext) {
   initializeProjectPilotOutput(context);
@@ -119,6 +125,15 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (!event.affectsConfiguration(`projectPilot.${DEMO_MODE_SETTING}`)) return;
+    outlineProvider.refresh();
+    managerProvider.postState();
+    if (fullscreenPanel) {
+      fullscreenPanel.webview.postMessage({ type: 'state', payload: getWebviewState(store) });
+    }
+  }));
+
   // 启动时自动打开全屏视图（默认开启）
   const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
   if (autoOpenFullscreen) {
@@ -132,6 +147,19 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('projectPilot.showManager', () => {
       vscode.commands.executeCommand('workbench.view.extension.projectPilot');
+    }),
+    vscode.commands.registerCommand('projectPilot.toggleDemoMode', async () => {
+      const config = vscode.workspace.getConfiguration('projectPilot');
+      const enabled = !isDemoModeEnabled();
+      await config.update(DEMO_MODE_SETTING, enabled, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(
+        enabled
+          ? 'Project Pilot Screenshot Demo Mode enabled. Only fictional read-only data is shown in the Manager and Agent Assets.'
+          : 'Project Pilot Screenshot Demo Mode disabled. Your saved projects and inventory are visible again.'
+      );
+      if (enabled) {
+        await vscode.commands.executeCommand('projectPilot.openFullscreen');
+      }
     }),
     vscode.commands.registerCommand('projectPilot.refreshAllViews', () => {
       outlineProvider.refresh();
@@ -1384,13 +1412,7 @@ function getNonce(): string {
 }
 
 function getWebviewState(store: ConfigStore) {
-  const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
-  return {
-    ...store.state,
-    projects: materializeRuntimeProjects(store.state.projects, store.state.sshHosts),
-    migrationWarnings: store.migrationWarnings,
-    config: { autoOpenFullscreen }
-  };
+  return getProjectPilotWebviewState(store);
 }
 
 // 处理 Webview 消息的通用函数
@@ -1403,6 +1425,10 @@ async function handleWebviewMessage(
 ) {
   if (msg?.type === 'openAgentAssetsEditor') {
     await vscode.commands.executeCommand('projectPilot.openAgentAssets');
+    return;
+  }
+
+  if (await handleDemoModeMessage(msg, webview)) {
     return;
   }
 

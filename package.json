@@ -49,7 +49,8 @@
     "onView:projectPilot.manager",
     "onView:projectPilot.outline",
     "onCommand:projectPilot.showManager",
-    "onCommand:projectPilot.openFullscreen"
+    "onCommand:projectPilot.openFullscreen",
+    "onCommand:projectPilot.toggleDemoMode"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -64,6 +65,12 @@
         "title": "Open Fullscreen View",
         "category": "Project Pilot",
         "icon": "$(screen-full)"
+      },
+      {
+        "command": "projectPilot.toggleDemoMode",
+        "title": "Toggle Screenshot Demo Mode",
+        "category": "Project Pilot",
+        "icon": "$(preview)"
       },
       {
         "command": "projectPilot.openNewWindow",
@@ -568,6 +575,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically open fullscreen view when VSCode starts. Disable this to use sidebar view only."
+        },
+        "projectPilot.demoMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show fictional read-only project, SSH Host, and Agent Assets data for safe product screenshots. No demo action changes saved projects or scans a machine."
         }
       }
     }
@@ -590,6 +602,8 @@
     "test:performanceReady": "node test/performanceReady.test.js",
     "test:startupPerformance": "npm run build:ext && node test/startupPerformance.test.js",
     "test:resizePerformance": "node test/resizePerformance.test.js",
+    "test:demoData": "npm run build:ext && node test/demoData.test.js",
+    "test:demoMode": "npm run build:ext && node test/demoMode.test.js",
     "test:mcpParser": "npm run build:ext && node test/mcpParser.test.js",
     "test:agentAssetsMessages": "npm run build:ext && node test/agentAssetsMessages.test.js",
     "test:agentAssetsOpen": "npm run build:ext && node test/agentAssetsOpen.test.js",

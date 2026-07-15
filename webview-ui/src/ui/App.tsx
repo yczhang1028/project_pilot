@@ -487,6 +487,7 @@ export default function App() {
   const [sshHostTestResult, setSshHostTestResult] = useState<SshHostTestResult | null>(null);
   const [warningProject, setWarningProject] = useState<ProjectItem | null>(null);
   const [dismissedMigrationWarningSignature, setDismissedMigrationWarningSignature] = useState<string | null>(null);
+  const demoModeRef = useRef<boolean | undefined>(undefined);
   const postAgentAssetsMessage = useCallback(
     (message: { type: string; payload?: unknown }) => vscode.postMessage(message),
     []
@@ -513,8 +514,13 @@ export default function App() {
       if (e.data?.type === 'state') {
         console.log('Project Pilot: Setting state', e.data.payload);
         const newState = normalizeUiState(e.data.payload as Partial<State> | undefined);
+        const previousDemoMode = demoModeRef.current;
+        demoModeRef.current = Boolean(newState.config?.demoMode);
         setState(newState);
         uiReadyNotifierRef.current?.notifyAfterRender();
+        if (previousDemoMode !== undefined && previousDemoMode !== demoModeRef.current) {
+          vscode.postMessage({ type: 'requestAgentInventory' });
+        }
         
         // 同步UI设置到本地状态
         if (newState.uiSettings) {
@@ -820,6 +826,9 @@ export default function App() {
               </svg>
             </span>
             <h1 className="text-lg font-semibold tracking-tight truncate" style={{ color: theme.foreground }}>Project Pilot</h1>
+            {state.config?.demoMode && (
+              <span className="demo-mode-badge" title="Fictional read-only screenshot data">Demo data</span>
+            )}
           </div>
           <span className="text-xs tabular-nums" style={{ color: toAlpha(theme.foreground, 0.58) }}>
             {filtered.length}/{state.projects.length}
@@ -1460,6 +1469,7 @@ export default function App() {
           inventory={agentInventory}
           progress={agentScanProgress}
           operationResult={agentAssetOperationResult}
+          demoMode={state.config?.demoMode}
           theme={theme}
           onPostMessage={postAgentAssetsMessage}
           onManageSshHost={hostId => {

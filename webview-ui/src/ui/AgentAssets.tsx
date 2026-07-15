@@ -17,6 +17,7 @@ interface AgentAssetsProps {
   inventory?: AgentInventorySnapshot;
   progress?: AgentScanProgress | null;
   operationResult?: AgentAssetOperationResult | null;
+  demoMode?: boolean;
   theme: Theme;
   onPostMessage: (message: { type: string; payload?: unknown }) => void;
   onManageSshHost: (hostId: string) => void;
@@ -77,6 +78,7 @@ export default function AgentAssets({
   inventory,
   progress,
   operationResult,
+  demoMode = false,
   theme,
   onPostMessage,
   onManageSshHost,
@@ -182,7 +184,10 @@ export default function AgentAssets({
           <div className="agent-assets__title-block">
             <span className="agent-assets__mark"><AgentAssetsIcon /></span>
             <div>
-              <div className="agent-assets__eyebrow">Environment inventory</div>
+              <div className="agent-assets__eyebrow">
+                Environment inventory
+                {demoMode && <span className="demo-mode-badge">Demo data</span>}
+              </div>
               <h2 id="agent-assets-title">Agent Assets</h2>
               <p>Skills, MCP configurations, and settings visible to Codex, Claude Code, and Cursor.</p>
             </div>

@@ -6,6 +6,7 @@
 |---------|-------------|----------|
 | `Project Pilot: Show Manager` | Open the main manager | `Ctrl+P Ctrl+P` |
 | `Project Pilot: Open Fullscreen View` | Open the fullscreen manager | `Ctrl+P Ctrl+F` |
+| `Project Pilot: Toggle Screenshot Demo Mode` | Toggle fictional read-only data for safe screenshots | - |
 | `Project Pilot: Add Local Folder` | Add a local folder | `Ctrl+P Ctrl+L` |
 | `Project Pilot: Add Current Folder` | Add the currently open folder | `Ctrl+P Ctrl+C` |
 | `Project Pilot: Add Workspace File` | Add a `.code-workspace` file | - |
@@ -19,6 +20,11 @@
 `Project Pilot: Cycle Outline Mode` cycles through `By Group`, `By Host`,
 `By Type`, and `Flat`. In `By Host`, stored Hosts are first-class tree nodes;
 Favorites and Recent remain flat.
+
+`Project Pilot: Toggle Screenshot Demo Mode` opens the fullscreen Manager when
+enabled. It replaces Manager, SSH Host, and Agent Assets payloads with in-memory
+fictional fixtures. Mutating, scanning, opening, and launching actions are
+blocked until the command is run again or `projectPilot.demoMode` is disabled.
 
 `Agent Assets` and `SSH Hosts` are toolbar surfaces rather than extra Command
 Palette entries. Selecting Agent Assets from either Manager opens the inventory
