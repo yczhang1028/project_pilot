@@ -2,7 +2,7 @@
   "name": "project-pilot",
   "displayName": "Project Pilot",
   "description": "Manage projects, SSH hosts, and agent assets for Codex, Claude Code, and Cursor.",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
