@@ -20,6 +20,11 @@
 `By Type`, and `Flat`. In `By Host`, stored Hosts are first-class tree nodes;
 Favorites and Recent remain flat.
 
+`Agent Assets` and `SSH Hosts` are toolbar surfaces rather than extra Command
+Palette entries. Selecting Agent Assets from either Manager opens the inventory
+in a fullscreen editor; scan, cancel, open, launch, and SSH recovery actions are
+then routed through that editor.
+
 ## Contextual Commands
 
 These commands still exist, but they are mainly intended for context menus, tree interactions, or internal flows rather than everyday command palette use.

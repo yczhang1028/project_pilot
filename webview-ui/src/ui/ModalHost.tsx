@@ -71,6 +71,7 @@ export interface ModalSurfaceProps {
   dismissible?: boolean;
   maxWidth?: string;
   className?: string;
+  overlayClassName?: string;
   children: React.ReactNode;
 }
 
@@ -81,6 +82,7 @@ export function ModalSurface({
   dismissible = true,
   maxWidth = '760px',
   className = '',
+  overlayClassName = '',
   children
 }: ModalSurfaceProps) {
   const host = useContext(ModalHostContext);
@@ -170,7 +172,7 @@ export function ModalSurface({
   return createPortal(
     <div
       ref={overlayRef}
-      className="modal-viewport"
+      className={`modal-viewport ${overlayClassName}`}
       aria-hidden={!isTop}
       style={{ ['--modal-layer' as string]: 100 + layer * 20 }}
       onMouseDown={event => {

@@ -38,17 +38,20 @@ npm run test:store
 npm run test:sshHostMessages
 npm run test:outline
 npm run test:sshHostManagerModel
+npm run test:resizePerformance
+npm run test:mcpParser
+npm run test:agentAssetsMessages
+npm run test:agentAssetsOpen
 npx tsc -p webview-ui/tsconfig.json --noEmit
 npm run build
 git diff --check
 ```
 
-Validation record (2026-07-07): all nine focused test scripts, the webview
-TypeScript check, the complete build, and `git diff --check` completed
-successfully. The build environment also reported 9 npm audit findings
-(4 moderate and 5 high), baseline-browser-mapping data older than two months,
-and caniuse-lite data 10 months old. These were environment/dependency notices,
-not test or feature failures.
+The 4.0 Agent Assets checks cover server-level MCP parsing and redaction,
+webview message routing, local/current/other-machine Open behavior, and resize
+performance invariants. `test:resizePerformance` specifically prevents a
+per-pixel React resize listener from returning and verifies browser rendering
+containment for long project and Agent Asset lists.
 
 ## Local Development
 

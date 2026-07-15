@@ -15,6 +15,7 @@ import {
 import { OutlineMode, OutlineNode, OutlineTreeProvider } from './outlineTreeProvider';
 import { getCurrentRemoteStatus } from './remoteContext';
 import { handleSshHostMessage } from './sshHostMessages';
+import { handleSshRecoveryMessage } from './sshRecovery';
 import { ConfigStore, ProjectItem, ProjectType } from './store';
 import {
   initializeProjectPilotOutput,
@@ -50,6 +51,8 @@ import {
   createReadyReporter,
   monotonicNow
 } from './startupPerformance';
+import { AgentAssetsService } from './agentAssets/inventoryService';
+import { handleAgentAssetsMessage } from './agentAssets/messages';
 
 export async function activate(context: vscode.ExtensionContext) {
   initializeProjectPilotOutput(context);
@@ -66,7 +69,11 @@ export async function activate(context: vscode.ExtensionContext) {
   writeProjectPilotOutput('INFO', `Configuration initialized with ${store.state.projects.length} projects and ${store.state.sshHosts.length} SSH Hosts.`);
   console.log('Project Pilot: Store initialized with', store.state.projects.length, 'projects');
 
-  const managerProvider = new ManagerViewProvider(context, store);
+  const agentAssets = new AgentAssetsService(context, store);
+  context.subscriptions.push(agentAssets);
+  activationPerformance.mark('Agent Assets registered');
+
+  const managerProvider = new ManagerViewProvider(context, store, agentAssets);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('projectPilot.manager', managerProvider)
   );
@@ -90,6 +97,17 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // 全屏视图面板引用
   let fullscreenPanel: vscode.WebviewPanel | undefined;
+  let fullscreenUiReady = false;
+  let pendingAgentAssetsOpen = false;
+
+  const revealAgentAssetsInEditor = async () => {
+    pendingAgentAssetsOpen = true;
+    await vscode.commands.executeCommand('projectPilot.openFullscreen');
+    if (fullscreenPanel && fullscreenUiReady) {
+      const delivered = await fullscreenPanel.webview.postMessage({ type: 'showAgentAssets' });
+      if (delivered) pendingAgentAssetsOpen = false;
+    }
+  };
 
   // 设置store变化时的回调，同步更新所有视图
   store.setOnChangeCallback(() => {
@@ -146,6 +164,7 @@ export async function activate(context: vscode.ExtensionContext) {
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview-ui', 'dist')]
         }
       );
+      fullscreenUiReady = false;
 
       // 设置 HTML 内容
       fullscreenPanel.webview.html = getFullscreenHtml(fullscreenPanel.webview, context);
@@ -157,19 +176,26 @@ export async function activate(context: vscode.ExtensionContext) {
       fullscreenPanel.webview.onDidReceiveMessage(async (msg) => {
         if (msg?.type === 'uiReady') {
           fullscreenReady.report();
+          fullscreenUiReady = true;
+          if (pendingAgentAssetsOpen && fullscreenPanel) {
+            const delivered = await fullscreenPanel.webview.postMessage({ type: 'showAgentAssets' });
+            if (delivered) pendingAgentAssetsOpen = false;
+          }
           return;
         }
-        await handleWebviewMessage(msg, fullscreenPanel!.webview, store);
+        await handleWebviewMessage(msg, fullscreenPanel!.webview, store, agentAssets);
       });
 
       // 面板关闭时清理引用
       fullscreenPanel.onDidDispose(() => {
         fullscreenPanel = undefined;
+        fullscreenUiReady = false;
       });
 
       // 发送初始状态
       fullscreenPanel.webview.postMessage({ type: 'state', payload: getWebviewState(store) });
     }),
+    vscode.commands.registerCommand('projectPilot.openAgentAssets', revealAgentAssetsInEditor),
     vscode.commands.registerCommand('projectPilot.openNewWindow', async () => {
       // 打开新窗口并显示Project Pilot
       await vscode.commands.executeCommand('workbench.action.newWindow');
@@ -1372,12 +1398,26 @@ function getWebviewState(store: ConfigStore) {
 async function handleWebviewMessage(
   msg: any, 
   webview: vscode.Webview, 
-  store: ConfigStore
+  store: ConfigStore,
+  agentAssets: AgentAssetsService
 ) {
+  if (msg?.type === 'openAgentAssetsEditor') {
+    await vscode.commands.executeCommand('projectPilot.openAgentAssets');
+    return;
+  }
+
+  if (await handleSshRecoveryMessage(msg, store)) {
+    return;
+  }
+
   const hostResult = await handleSshHostMessage(msg, store);
   if (hostResult) {
     logSshHostResult(hostResult);
     await webview.postMessage(hostResult);
+    return;
+  }
+
+  if (await handleAgentAssetsMessage(msg, webview, agentAssets)) {
     return;
   }
 

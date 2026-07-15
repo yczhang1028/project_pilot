@@ -39,10 +39,56 @@ expand it. Collapsed groups persist across layout switches and VS Code reloads.
 - Open projects directly from cards
 - Keep the selected layout while it adapts automatically to narrow sidebars or fullscreen
 - Open `SSH Hosts` from the toolbar to manage reusable SSH connections
+- Open `Agent Assets` from the toolbar to inspect agent environments in a fullscreen editor
 
 Project Editor and SSH Hosts can be opened as nested dialogs. Escape closes or
 cancels only the topmost dialog state, focus returns to the control that opened
 it, and the dialog body remains scrollable at narrow widths or high zoom.
+
+### Agent Assets
+
+Agent Assets is a read-only inventory of Skills, MCP servers, and settings used
+by Codex, Claude Code, and Cursor. It opens in a fullscreen editor because the
+inventory includes long paths, descriptions, provider bindings, and MCP server
+details that do not fit comfortably in the sidebar.
+
+The machine list contains the local machine plus every reusable SSH Host. A
+scan is always scoped to the selected machine; opening the view does not connect
+to every remote Host. The local machine can scan automatically when it has no
+inventory or its result is stale. Remote scans remain explicit.
+
+Each scan:
+
+1. Builds a bounded list of known global and managed-project roots.
+2. Reports connection, root-scan, and save progress.
+3. Skips dependency and build directories such as `.git`, `node_modules`,
+   `dist`, `build`, and `__pycache__`.
+4. Deduplicates the same physical asset while preserving all provider and scope
+   bindings.
+5. Saves the completed snapshot locally so reopening the view is immediate.
+
+Local results become stale after 5 minutes and SSH results after 15 minutes.
+Stale data remains visible until a successful refresh replaces it. Cancelling
+or failing a refresh does not erase the last successful inventory.
+
+Use the first row of cards as tabs for `Skills`, `MCP`, and `Settings`. Then
+filter by provider, global or project scope, or free text. Asset states include
+ready, invalid, broken link, and unreadable.
+
+MCP configuration files are expanded into individual server records. Project
+Pilot shows the transport, enabled state, sanitized command or URL, argument
+summary, environment variable key names, header key names, and validation
+state. Secret values are not displayed or stored in the inventory view.
+
+`Open SKILL.md`, `Open config`, and `Open settings` follow the selected machine:
+
+- If the asset belongs to the current VS Code environment, it opens in the
+  current editor.
+- If it belongs to another local or SSH environment, Project Pilot opens a
+  matching VS Code window and targets the file there.
+- A missing file produces an error instead of presenting a successful action.
+
+Version 4.0 does not copy, move, delete, or synchronize Agent Assets.
 
 ### SSH Hosts
 
@@ -73,6 +119,17 @@ Connection tests use a bounded, non-interactive OpenSSH probe with
 even when an interactive password login would work. Configure a key or SSH
 agent to make this probe succeed. Test results and Host operations are also
 written to the dedicated `Project Pilot` channel in VS Code's Output panel.
+
+When an Agent Assets scan identifies an authentication failure, it can prepare
+an SSH key-login command in a local terminal. On Unix this uses `ssh-copy-id`;
+on Windows it prepares an equivalent PowerShell pipeline that appends the
+public key to `authorized_keys`. The command is copied and prefilled but waits
+for review and an explicit Enter key.
+
+When the saved host key has changed, `Repair known_hosts` first shows a modal
+safety warning and then prepares `ssh-keygen -R` for the effective hostname and
+port. Verify the replacement fingerprint through a trusted channel before
+reconnecting.
 
 ## Outline
 

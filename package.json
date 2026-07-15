@@ -1,8 +1,8 @@
 {
   "name": "project-pilot",
   "displayName": "Project Pilot",
-  "description": "Launch local folders, workspace files, and SSH projects from one modern command deck.",
-  "version": "3.0.0",
+  "description": "Manage projects, SSH hosts, and agent assets for Codex, Claude Code, and Cursor.",
+  "version": "4.0.0",
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
@@ -27,7 +27,13 @@
     "ssh",
     "remote",
     "folder",
-    "organization"
+    "organization",
+    "agent",
+    "skills",
+    "mcp",
+    "codex",
+    "claude",
+    "cursor"
   ],
   "repository": {
     "type": "git",
@@ -583,6 +589,10 @@
     "test:activationEvents": "node test/activationEvents.test.js",
     "test:performanceReady": "node test/performanceReady.test.js",
     "test:startupPerformance": "npm run build:ext && node test/startupPerformance.test.js",
+    "test:resizePerformance": "node test/resizePerformance.test.js",
+    "test:mcpParser": "npm run build:ext && node test/mcpParser.test.js",
+    "test:agentAssetsMessages": "npm run build:ext && node test/agentAssetsMessages.test.js",
+    "test:agentAssetsOpen": "npm run build:ext && node test/agentAssetsOpen.test.js",
     "test:store": "npm run build:ext && node test/store.test.js",
     "test:sshResolve": "npm run build:ext && node test/sshResolve.test.js",
     "watch": "npm run watch:ext",
