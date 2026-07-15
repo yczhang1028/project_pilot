@@ -1,103 +1,5 @@
-export type ProjectType = 'local' | 'workspace' | 'ssh' | 'ssh-workspace';
-
-export interface SshHost {
-  id: string;
-  name: string;
-  hostname: string;
-  username?: string;
-  port?: number;
-}
-
-export interface ProjectItem {
-  id?: string;
-  name: string;
-  path: string;
-  description?: string;
-  icon?: string;
-  color?: string;
-  tags?: string[];
-  group?: string;
-  type: ProjectType;
-  isFavorite?: boolean;
-  clickCount?: number;
-  lastAccessed?: string;
-  sshHostId?: string;
-  remotePath?: string;
-}
-
-export interface UISettings {
-  /** @deprecated Layout density is now defined by the selected Manager layout. */
-  compactMode?: boolean;
-  viewMode?: 'grid' | 'list' | 'mini';
-  selectedGroup?: string;
-  collapsedGroups?: string[];
-  outlineMode?: 'group' | 'target' | 'host' | 'type' | 'flat';
-}
-
-export interface ConfigSettings {
-  autoOpenFullscreen?: boolean;
-  demoMode?: boolean;
-}
-
-export interface SshMigrationWarning {
-  projectId?: string;
-  projectName: string;
-  message: string;
-}
-
-export interface State {
-  schemaVersion?: number;
-  projects: ProjectItem[];
-  sshHosts: SshHost[];
-  migrationWarnings: SshMigrationWarning[];
-  uiSettings?: UISettings;
-  config?: ConfigSettings;
-}
-
-export type SshHostOperation = 'add' | 'update' | 'delete' | 'migrate';
-
-export interface SshHostOperationResult {
-  success: boolean;
-  operation: SshHostOperation;
-  message?: string;
-  requestId?: string;
-  hostId?: string;
-  targetHostId?: string;
-}
-
-export type SshProbeCode =
-  | 'ok'
-  | 'ssh-not-found'
-  | 'dns'
-  | 'timeout'
-  | 'host-key'
-  | 'auth'
-  | 'remote-command';
-
-export interface SshHostTestResult {
-  success: boolean;
-  code: SshProbeCode;
-  message: string;
-  requestId?: string;
-  hostId?: string;
-  resolution?: {
-    host?: string;
-    resolvedHostname?: string;
-    ip?: string;
-    resolvedUsername?: string;
-    port?: string;
-    warnings?: string[];
-  };
-}
-
-export interface SshHostDraft {
-  name: string;
-  hostname: string;
-  username: string;
-  port: string;
-}
-
 export type AgentProviderId = 'codex' | 'claude' | 'cursor';
+
 export type AgentAssetKind = 'skill' | 'mcp' | 'settings';
 export type AgentAssetScope = 'global' | 'project';
 export type AgentAssetStatus = 'ready' | 'invalid' | 'broken-link' | 'unreadable';
@@ -182,7 +84,42 @@ export interface AgentScanProgress {
   message?: string;
 }
 
-export interface AgentAssetOperationResult {
-  success: boolean;
-  message: string;
+export interface ScanRoot {
+  id: string;
+  kind: AgentAssetKind;
+  providerId: AgentProviderId;
+  providerLabel: string;
+  scope: AgentAssetScope;
+  sourceKind: 'native' | 'shared';
+  base: 'home' | 'appData' | 'absolute';
+  path: string;
+  label: string;
+  projectId?: string;
+  projectName?: string;
+}
+
+export interface RawScannedAsset {
+  rootId: string;
+  kind: AgentAssetKind;
+  name: string;
+  description?: string;
+  path: string;
+  realPath?: string;
+  modifiedAt?: string;
+  isSymlink?: boolean;
+  status: AgentAssetStatus;
+  statusMessage?: string;
+  entryKey?: string;
+  mcp?: McpServerDetails;
+}
+
+export interface RootScanResult {
+  rootId: string;
+  status: 'complete' | 'missing' | 'error';
+  message?: string;
+}
+
+export interface MachineScanResult {
+  assets: RawScannedAsset[];
+  roots: RootScanResult[];
 }

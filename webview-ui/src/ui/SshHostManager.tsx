@@ -25,6 +25,7 @@ interface SshHostManagerProps {
   theme: Theme;
   operationResult?: SshHostOperationResult | null;
   testResult?: SshHostTestResult | null;
+  initialHostId?: string;
   onPostMessage: (message: { type: string; payload?: unknown; requestId?: string }) => void;
   onClose: () => void;
 }
@@ -77,6 +78,7 @@ export default function SshHostManager({
   theme,
   operationResult,
   testResult,
+  initialHostId,
   onPostMessage,
   onClose
 }: SshHostManagerProps) {
@@ -91,6 +93,7 @@ export default function SshHostManager({
   const [operationFeedback, setOperationFeedback] = useState<SshHostOperationResult | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const initialFocusRef = useRef<HTMLButtonElement>(null);
+  const appliedInitialHostRef = useRef<string>();
 
   const validationError = useMemo(
     () => draft ? validateSshHostDraft(draft, hosts, editingId) : null,
@@ -125,6 +128,15 @@ export default function SshHostManager({
   useEffect(() => {
     initialFocusRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!initialHostId || appliedInitialHostRef.current === initialHostId) return;
+    const host = hosts.find(candidate => candidate.id === initialHostId);
+    if (!host) return;
+    appliedInitialHostRef.current = initialHostId;
+    setEditingId(host.id);
+    setDraft(draftFromHost(host));
+  }, [hosts, initialHostId]);
 
   useEffect(() => {
     if (draftFocusKey) {
@@ -336,6 +348,26 @@ export default function SshHostManager({
                     <input inputMode="numeric" className="soft-input w-full px-3 py-2.5 border rounded-xl" style={inputStyle} value={draft.port} onChange={event => setDraft({ ...draft, port: event.target.value })} placeholder="22" disabled={Boolean(pendingMutation)} />
                   </label>
                 </div>
+                {editingId && (
+                  <div className="mt-4 rounded-xl border p-3" style={{ borderColor, backgroundColor: alpha(theme.foreground, 0.035) }}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium" style={{ color: theme.foreground }}>SSH recovery commands</p>
+                        <p className="text-xs mt-1" style={{ color: alpha(theme.foreground, 0.66) }}>
+                          Commands open prefilled in a local terminal. Review them before pressing Enter.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="soft-button px-3 py-2 rounded-lg text-xs" style={secondaryButtonStyle} onClick={() => onPostMessage({ type: 'prepareSshRecovery', payload: { hostId: editingId, action: 'key-login' } })}>
+                          Set up key login
+                        </button>
+                        <button className="soft-button px-3 py-2 rounded-lg text-xs" style={secondaryButtonStyle} onClick={() => onPostMessage({ type: 'prepareSshRecovery', payload: { hostId: editingId, action: 'known-host' } })}>
+                          Repair known_hosts
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {validationError && <p className="text-xs mt-3" style={{ color: '#f59e0b' }}>{validationError}</p>}
                 <div className="flex flex-col-reverse sm:flex-row gap-2 mt-4">
                   <button className="soft-button px-4 py-2.5 rounded-xl text-sm" style={secondaryButtonStyle} onClick={testDraft} disabled={Boolean(validationError || pendingProbe || pendingMutation)}>{pendingProbe ? 'Testing…' : 'Test connection'}</button>

@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SshHostManager from './SshHostManager';
+import AgentAssets from './AgentAssets';
+import AgentAssetsIcon from './AgentAssetsIcon';
+import ManagerLayoutIcon from './ManagerLayoutIcon';
 import { ModalSurface } from './ModalHost';
 import { FavoriteProjectsRail, ProjectLayout } from './ProjectLayouts';
 import {
@@ -11,6 +14,9 @@ import {
   type ManagerLayout
 } from './managerLayout';
 import type {
+  AgentAssetOperationResult,
+  AgentInventorySnapshot,
+  AgentScanProgress,
   ProjectItem,
   ProjectType,
   SshHost,
@@ -472,11 +478,20 @@ export default function App() {
   const [theme, setTheme] = useState(getVSCodeTheme());
   const [showControls, setShowControls] = useState(false);
   const [showSshHostManager, setShowSshHostManager] = useState(false);
+  const [sshHostManagerInitialHostId, setSshHostManagerInitialHostId] = useState<string>();
+  const [showAgentAssets, setShowAgentAssets] = useState(false);
+  const [agentInventory, setAgentInventory] = useState<AgentInventorySnapshot>();
+  const [agentScanProgress, setAgentScanProgress] = useState<AgentScanProgress | null>(null);
+  const [agentAssetOperationResult, setAgentAssetOperationResult] = useState<AgentAssetOperationResult | null>(null);
   const [sshHostOperationResult, setSshHostOperationResult] = useState<SshHostOperationResult | null>(null);
   const [sshHostTestResult, setSshHostTestResult] = useState<SshHostTestResult | null>(null);
   const [warningProject, setWarningProject] = useState<ProjectItem | null>(null);
   const [dismissedMigrationWarningSignature, setDismissedMigrationWarningSignature] = useState<string | null>(null);
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1440);
+  const demoModeRef = useRef<boolean | undefined>(undefined);
+  const postAgentAssetsMessage = useCallback(
+    (message: { type: string; payload?: unknown }) => vscode.postMessage(message),
+    []
+  );
   const migrationWarningSignature = useMemo(
     () => getMigrationWarningSignature(state.migrationWarnings),
     [state.migrationWarnings]
@@ -499,8 +514,13 @@ export default function App() {
       if (e.data?.type === 'state') {
         console.log('Project Pilot: Setting state', e.data.payload);
         const newState = normalizeUiState(e.data.payload as Partial<State> | undefined);
+        const previousDemoMode = demoModeRef.current;
+        demoModeRef.current = Boolean(newState.config?.demoMode);
         setState(newState);
         uiReadyNotifierRef.current?.notifyAfterRender();
+        if (previousDemoMode !== undefined && previousDemoMode !== demoModeRef.current) {
+          vscode.postMessage({ type: 'requestAgentInventory' });
+        }
         
         // 同步UI设置到本地状态
         if (newState.uiSettings) {
@@ -534,6 +554,16 @@ export default function App() {
         setSshHostOperationResult(e.data.payload as SshHostOperationResult);
       } else if (e.data?.type === 'sshHostTestResult') {
         setSshHostTestResult(e.data.payload as SshHostTestResult);
+      } else if (e.data?.type === 'agentInventorySnapshot') {
+        setAgentInventory(e.data.payload as AgentInventorySnapshot);
+      } else if (e.data?.type === 'agentScanProgress') {
+        setAgentScanProgress(e.data.payload as AgentScanProgress);
+      } else if (e.data?.type === 'agentAssetOperationResult') {
+        setAgentAssetOperationResult(e.data.payload as AgentAssetOperationResult);
+      } else if (e.data?.type === 'showAgentAssets') {
+        setAgentAssetOperationResult(null);
+        setShowAgentAssets(true);
+        vscode.postMessage({ type: 'requestAgentInventory' });
       }
     };
     window.addEventListener('message', listener);
@@ -563,14 +593,6 @@ export default function App() {
 
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -737,13 +759,18 @@ export default function App() {
     vscode.postMessage({ type: 'toggleFavorite', payload: { id } });
   };
 
-  const openSshHostManager = () => {
+  const openSshHostManager = (initialHostId?: string) => {
     setSshHostOperationResult(null);
     setSshHostTestResult(null);
+    setSshHostManagerInitialHostId(initialHostId);
     setShowSshHostManager(true);
+  };
+  const openAgentAssets = () => {
+    vscode.postMessage({ type: 'openAgentAssetsEditor' });
   };
   const closeSshHostManager = () => {
     setShowSshHostManager(false);
+    setSshHostManagerInitialHostId(undefined);
     setSshHostOperationResult(null);
     setSshHostTestResult(null);
   };
@@ -755,8 +782,10 @@ export default function App() {
     });
   };
 
-  const headerStacked = windowWidth < 920;
-  const actionStacked = windowWidth < 560;
+  const favoriteCount = useMemo(
+    () => state.projects.reduce((count, project) => count + (project.isFavorite ? 1 : 0), 0),
+    [state.projects]
+  );
   const primaryGlow = toAlpha(theme.focusBorder, 0.32);
   const subtleGlow = toAlpha(theme.focusBorder, 0.2);
   const cardGlassBackground = toAlpha(theme.secondaryBackground, 0.72);
@@ -797,6 +826,9 @@ export default function App() {
               </svg>
             </span>
             <h1 className="text-lg font-semibold tracking-tight truncate" style={{ color: theme.foreground }}>Project Pilot</h1>
+            {state.config?.demoMode && (
+              <span className="demo-mode-badge" title="Fictional read-only screenshot data">Demo data</span>
+            )}
           </div>
           <span className="text-xs tabular-nums" style={{ color: toAlpha(theme.foreground, 0.58) }}>
             {filtered.length}/{state.projects.length}
@@ -804,7 +836,7 @@ export default function App() {
         </div>
         
         {/* Search Bar */}
-        <div className={`manager-actions relative z-10 flex ${actionStacked ? 'flex-col' : 'gap-2 items-center'} mb-3`}>
+        <div className="manager-actions relative z-10 mb-3">
           <div className="manager-search relative flex-1">
             <input 
               className="soft-input w-full pl-10 pr-10 py-2.5 text-sm rounded-xl border focus:ring-2 focus:border-transparent transition-all" 
@@ -837,7 +869,7 @@ export default function App() {
             )}
           </div>
           <button 
-            className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
+            className="manager-action manager-action--add soft-button px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center justify-center gap-2"
             style={{
               backgroundColor: theme.buttonBackground,
               color: theme.buttonForeground,
@@ -857,13 +889,31 @@ export default function App() {
             <span>{showAddForm ? 'Close' : 'Add Project'}</span>
           </button>
           <button
-            className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
+            className="manager-action manager-action--assets soft-button px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center justify-center gap-2"
             style={{
               backgroundColor: secondaryPanelBackground,
               color: theme.inputForeground,
               borderColor: toAlpha(theme.inputBorder, 0.62)
             }}
-            onClick={openSshHostManager}
+            onClick={openAgentAssets}
+            title="Open Agent Assets in the editor"
+          >
+            <AgentAssetsIcon className="agent-assets-button__icon" />
+            <span>Agent Assets</span>
+            {agentInventory && (
+              <span className="stat-chip px-2 py-0.5 rounded-full text-[11px]" style={{ color: theme.foreground }}>
+                {agentInventory.assets.length}
+              </span>
+            )}
+          </button>
+          <button
+            className="manager-action manager-action--hosts soft-button px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center justify-center gap-2"
+            style={{
+              backgroundColor: secondaryPanelBackground,
+              color: theme.inputForeground,
+              borderColor: toAlpha(theme.inputBorder, 0.62)
+            }}
+            onClick={() => openSshHostManager()}
             title="Manage reusable SSH Hosts"
           >
             <svg className="ssh-host-button__icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" aria-hidden="true">
@@ -877,7 +927,7 @@ export default function App() {
             </span>
           </button>
           <button 
-            className={`soft-button ${actionStacked ? 'w-full justify-center' : ''} px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center gap-2`}
+            className="manager-action manager-action--options soft-button px-4 py-2.5 text-sm rounded-xl transition-all inline-flex items-center justify-center gap-2"
             style={{
               backgroundColor: secondaryPanelBackground,
               color: theme.inputForeground,
@@ -891,7 +941,7 @@ export default function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
-          <div className="layout-switcher" role="group" aria-label="Manager layout">
+          <div className="layout-switcher manager-action--layout" role="group" aria-label="Manager layout">
             {layoutOptions.map(option => (
               <button
                 key={option.id}
@@ -904,7 +954,7 @@ export default function App() {
                   updateUISettings({ viewMode: toStoredViewMode(option.id) });
                 }}
               >
-                <span aria-hidden="true">{option.id === 'command' ? '▦' : option.id === 'explorer' ? '☷' : '▤'}</span>
+                <ManagerLayoutIcon layout={option.id} className="layout-switcher__icon" />
                 <span className="layout-switcher__label">{option.label}</span>
               </button>
             ))}
@@ -981,7 +1031,7 @@ export default function App() {
               <div className="border-t" style={{ borderColor: toAlpha(theme.border, 0.42) }}></div>
 
               {/* View Options and Configure */}
-              <div className={`flex gap-3 ${headerStacked ? 'flex-col' : 'items-start justify-between'}`}>
+              <div className="manager-options-row">
                 <div className="control-cluster">
                   <button 
                     className="soft-button px-3 py-2 text-xs rounded-xl transition-all"
@@ -1219,12 +1269,12 @@ export default function App() {
           ['--glow-color' as string]: subtleGlow
         }}
       >
-        <div className={`flex ${headerStacked ? 'flex-col items-start gap-2' : 'justify-between items-center'} mb-4`}>
+        <div className="projects-heading mb-4">
           <h2 className="text-sm font-medium" style={{ color: theme.foreground }}>
             {showFavoritesOnly ? `Favorites (${filtered.length})` : `Projects (${filtered.length})`}
-            {!showFavoritesOnly && state.projects.filter(p => p.isFavorite).length > 0 && (
+            {!showFavoritesOnly && favoriteCount > 0 && (
               <span className="ml-2 text-xs" style={{ color: theme.foreground, opacity: 0.6 }}>
-                • {state.projects.filter(p => p.isFavorite).length} favorited
+                • {favoriteCount} favorited
               </span>
             )}
           </h2>
@@ -1311,7 +1361,7 @@ export default function App() {
                           theme={theme}
                           allGroups={allGroups}
                           sshHosts={state.sshHosts}
-                          onManageSshHosts={openSshHostManager}
+                          onManageSshHosts={() => openSshHostManager()}
                           onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })}
                           onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
                           onOpen={() => {
@@ -1337,7 +1387,7 @@ export default function App() {
                 theme={theme}
                 allGroups={allGroups}
                 sshHosts={state.sshHosts}
-                onManageSshHosts={openSshHostManager}
+                onManageSshHosts={() => openSshHostManager()}
                 onChange={(np) => vscode.postMessage({ type: 'addOrUpdate', payload: np })} 
                 onDelete={() => vscode.postMessage({ type: 'delete', payload: { id: p.id } })}
                 onOpen={() => {
@@ -1376,7 +1426,7 @@ export default function App() {
           theme={theme}
           allGroups={allGroups}
           sshHosts={state.sshHosts}
-          onManageSshHosts={openSshHostManager}
+          onManageSshHosts={() => openSshHostManager()}
           onSave={createNewProject}
           onCancel={() => setNewProjectType(null)}
         />
@@ -1387,7 +1437,7 @@ export default function App() {
           theme={theme}
           allGroups={allGroups}
           sshHosts={state.sshHosts}
-          onManageSshHosts={openSshHostManager}
+          onManageSshHosts={() => openSshHostManager()}
           onSave={updatedProject => {
             vscode.postMessage({ type: 'addOrUpdate', payload: updatedProject });
             setWarningProject(null);
@@ -1402,6 +1452,7 @@ export default function App() {
           theme={theme}
           operationResult={sshHostOperationResult}
           testResult={sshHostTestResult}
+          initialHostId={sshHostManagerInitialHostId}
           onPostMessage={message => {
             if (message.type === 'testSshHost') {
               setSshHostTestResult(null);
@@ -1411,6 +1462,29 @@ export default function App() {
             vscode.postMessage(message);
           }}
           onClose={closeSshHostManager}
+        />
+      )}
+      {showAgentAssets && (
+        <AgentAssets
+          inventory={agentInventory}
+          progress={agentScanProgress}
+          operationResult={agentAssetOperationResult}
+          demoMode={state.config?.demoMode}
+          theme={theme}
+          onPostMessage={postAgentAssetsMessage}
+          onManageSshHost={hostId => {
+            setShowAgentAssets(false);
+            setAgentAssetOperationResult(null);
+            openSshHostManager(hostId);
+          }}
+          onPrepareSshRecovery={(hostId, action) => vscode.postMessage({
+            type: 'prepareSshRecovery',
+            payload: { hostId, action }
+          })}
+          onClose={() => {
+            setShowAgentAssets(false);
+            setAgentAssetOperationResult(null);
+          }}
         />
       )}
     </div>

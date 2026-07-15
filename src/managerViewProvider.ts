@@ -3,6 +3,7 @@ import { getCurrentRemoteStatus } from './remoteContext';
 import { ConfigStore, type ProjectItem } from './store';
 import { normalizeProjectItemForStorage, normalizeSelectedProjectUri } from './projectPath';
 import { getOwnMessageType, handleSshHostMessage } from './sshHostMessages';
+import { handleSshRecoveryMessage } from './sshRecovery';
 import {
   materializeRuntimeProjects,
   resolveSshProjectRuntime,
@@ -16,10 +17,17 @@ import {
   writeStartupPerformance
 } from './outputChannel';
 import { createReadyReporter, monotonicNow } from './startupPerformance';
+import { AgentAssetsService } from './agentAssets/inventoryService';
+import { handleAgentAssetsMessage } from './agentAssets/messages';
+import { getProjectPilotWebviewState, handleDemoModeMessage } from './demoMode';
 
 export class ManagerViewProvider implements vscode.WebviewViewProvider {
   private currentView?: vscode.WebviewView;
-  constructor(private readonly context: vscode.ExtensionContext, private readonly store: ConfigStore) {}
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly store: ConfigStore,
+    private readonly agentAssets: AgentAssetsService
+  ) {}
 
   resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
     const readyReporter = createReadyReporter(
@@ -38,10 +46,27 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
       }
       console.log('Project Pilot: Received message from webview', getOwnMessageType(msg) ?? 'unknown');
 
+      if (msg?.type === 'openAgentAssetsEditor') {
+        await vscode.commands.executeCommand('projectPilot.openAgentAssets');
+        return;
+      }
+
+      if (await handleDemoModeMessage(msg, webviewView.webview)) {
+        return;
+      }
+
+      if (await handleSshRecoveryMessage(msg, this.store)) {
+        return;
+      }
+
       const hostResult = await handleSshHostMessage(msg, this.store);
       if (hostResult) {
         logSshHostResult(hostResult);
         await webviewView.webview.postMessage(hostResult);
+        return;
+      }
+
+      if (await handleAgentAssetsMessage(msg, webviewView.webview, this.agentAssets)) {
         return;
       }
       
@@ -205,15 +230,9 @@ export class ManagerViewProvider implements vscode.WebviewViewProvider {
   }
 
   postState(view?: vscode.WebviewView) {
-    const autoOpenFullscreen = vscode.workspace.getConfiguration('projectPilot').get('autoOpenFullscreen', true);
     const message = { 
       type: 'state', 
-      payload: { 
-        ...this.store.state,
-        projects: materializeRuntimeProjects(this.store.state.projects, this.store.state.sshHosts),
-        migrationWarnings: this.store.migrationWarnings,
-        config: { autoOpenFullscreen } 
-      } 
+      payload: getProjectPilotWebviewState(this.store)
     } as const;
     console.log('Project Pilot: Posting message to webview', message.type);
     (view ?? this.currentView)?.webview.postMessage(message);

@@ -2,6 +2,32 @@
 
 All notable changes to the "Project Pilot" extension will be documented in this file.
 
+## [4.0.0] - 2026-07-14
+
+### Agent Environment Management
+
+- Added a fullscreen **Agent Assets** inventory for Skills, MCP servers, and settings used by Codex, Claude Code, and Cursor.
+- Added local and reusable SSH Host targets with explicit per-machine scans, root-level progress, cancellation, cached startup results, freshness states, and scan timing diagnostics.
+- Added global and project scope bindings, physical-path deduplication, shared-location indicators, symbolic-link detection, and invalid, unreadable, or broken-link states.
+- Parsed MCP configurations into individual servers with transport, enabled state, sanitized command or URL metadata, environment key names, header key names, and validation feedback.
+- Kept the first release read-only: Agent Assets never copies, moves, synchronizes, or deletes scanned files.
+
+### SSH Recovery and Asset Opening
+
+- Classified connection, authentication, host-key, remote-runtime, and scan failures with focused recovery guidance.
+- Added reviewable key-login commands for Windows and Unix plus guarded `ssh-keygen -R` known-host recovery.
+- Fixed Agent Asset Open actions so local/current-environment files open in the current editor and other-machine assets open in a matching VS Code window.
+- Removed launch actions when Project Pilot cannot provide a reliable target action.
+
+### Manager UI and Performance
+
+- Replaced ambiguous layout glyphs with purpose-built Command, Explorer, and Gallery SVG icons.
+- Opened Agent Assets in the editor by default and increased its typography and information density for fullscreen use.
+- Removed per-pixel React resize state updates; responsive headers now use CSS breakpoints.
+- Added browser layout/paint containment and off-screen rendering skips for large grouped project collections and Agent Asset inventories.
+- Removed the full-viewport blur layer and suspended layout/paint for the covered Manager while Agent Assets is open, so editor and sidebar resizing only updates the visible inventory.
+- Added automated coverage for MCP parsing, Agent Asset message routing/open actions, layout mapping, and resize performance invariants.
+
 ## [3.0.0] - 2026-07-08
 
 ### ✨ Manager Layout Refresh
