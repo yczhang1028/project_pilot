@@ -123,11 +123,19 @@ Demo mode is read-only and in-memory. Project edits, SSH operations, scans, file
 
 ## Screenshots
 
-The checked-in screenshots were reconstructed from the product UI with fictional project names, hosts, users, and paths.
+The current screenshots were captured directly from Project Pilot's built-in Screenshot Demo Mode. All project names, Hosts, users, paths, Skills, MCP servers, and settings shown below are fictional.
 
 ### Command layout
 
 ![Project Pilot Command layout](media/demo/demo-manager-command-4.png)
+
+### Agent Assets: MCP details
+
+![Project Pilot Agent Assets MCP details](media/demo/demo-agent-assets-mcp-4.png)
+
+### SSH Host management
+
+![Project Pilot SSH Hosts](media/demo/demo-ssh-hosts-4.png)
 
 ### Add or edit a project
 
