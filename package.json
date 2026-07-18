@@ -6,7 +6,7 @@
   "publisher": "yczhang1028",
   "icon": "media/icon-512x512.png",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": ">=1.90.0 <3.0.0"
   },
   "extensionKind": [
     "ui"
